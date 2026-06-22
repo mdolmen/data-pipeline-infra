@@ -1,0 +1,39 @@
+name: terraform
+
+on:
+  pull_request:
+    paths:
+      - "modules/**"
+      - "envs/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "modules/**"
+      - "envs/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.5"
+
+      - name: fmt
+        run: terraform fmt -check -recursive
+
+      # validate needs no cloud credentials (-backend=false skips state).
+      - name: init (no backend)
+        working-directory: envs/dev
+        run: terraform init -backend=false
+
+      - name: validate
+        working-directory: envs/dev
+        run: terraform validate
+
+  # plan/apply need GCP credentials (Workload Identity Federation) and a backend.
+  # Add a job here once the WIF provider + service account are configured:
+  #   - google-github-actions/auth@v2 (workload_identity_provider, service_account)
+  #   - terraform init -backend-config=... && terraform plan
