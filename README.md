@@ -64,7 +64,24 @@ gcloud storage buckets create gs://<your-tf-state-bucket> \
 gcloud storage buckets update gs://<your-tf-state-bucket> --versioning
 ```
 
-## 2. Build & push the worker image
+## 2. Init
+
+```bash
+cd envs/dev
+terraform init -backend-config="bucket=<your-tf-state-bucket>"
+```
+
+## 3. Create the registry first (first run only)
+
+Cloud Run validates that a job's image is pullable at creation, so the registry
+must exist and the image must be pushed **before** the jobs are applied. On a new
+project, create just the registry:
+
+```bash
+terraform apply -target=module.pipeline.google_artifact_registry_repository.workers
+```
+
+## 4. Build & push the worker image
 
 The worker depends on the SDK via an editable path, so the build context must
 contain **both** repos as siblings. From the parent directory that holds
@@ -74,33 +91,32 @@ contain **both** repos as siblings. From the parent directory that holds
 REPO=europe-west9-docker.pkg.dev/<project>/pma-workers
 gcloud auth configure-docker europe-west9-docker.pkg.dev
 
-docker build -f proba-markets-analysis/Dockerfile -t $REPO/worker:$(git -C proba-markets-analysis rev-parse --short HEAD) .
-docker push $REPO/worker:<tag>
+TAG=$(git -C proba-markets-analysis rev-parse --short HEAD)
+docker build -f proba-markets-analysis/Dockerfile -t $REPO/worker:$TAG .
+docker push $REPO/worker:$TAG
+# grab the digest to pin:
+gcloud artifacts docker images describe $REPO/worker:$TAG --format='value(image_summary.digest)'
 ```
 
-> The Artifact Registry repo (`pma-workers`) is created by Terraform (step 4),
-> so on the very first run either push after `apply`, or create the repo first.
-> Pin the **digest** (`worker@sha256:…`) into `terraform.tfvars`, not a tag.
+Pin the **digest** (`worker@sha256:…`) into `terraform.tfvars`, not the tag.
 
-## 3. Configure
+## 5. Configure
 
 ```bash
-cd envs/dev
 cp terraform.tfvars.example terraform.tfvars
-# edit: project_id, image (the @sha256 digest)
+# edit: project_id, image (the …@sha256:… digest from step 4)
 ```
 
-## 4. Init / plan / apply
+## 6. Plan & apply
 
 ```bash
-terraform init -backend-config="bucket=<your-tf-state-bucket>"
 terraform plan
 terraform apply
 ```
 
 Schedulers deploy **paused** (`schedulers_paused = true`), so nothing fires yet.
 
-## 5. Verify, then go live
+## 7. Verify, then go live
 
 ```bash
 # one manual run of the whole-source loop
