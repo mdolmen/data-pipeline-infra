@@ -4,13 +4,13 @@ on:
   pull_request:
     paths:
       - "modules/**"
-      - "envs/**"
+      - "examples/**"
       - ".github/workflows/terraform.yml"
   push:
     branches: [main]
     paths:
       - "modules/**"
-      - "envs/**"
+      - "examples/**"
 
 jobs:
   validate:
@@ -24,16 +24,12 @@ jobs:
       - name: fmt
         run: terraform fmt -check -recursive
 
-      # validate needs no cloud credentials (-backend=false skips state).
+      # The modules can't be validated standalone, so we validate the minimal
+      # fixture, which instantiates them. No cloud creds (-backend=false).
       - name: init (no backend)
-        working-directory: envs/dev
+        working-directory: examples/minimal
         run: terraform init -backend=false
 
       - name: validate
-        working-directory: envs/dev
+        working-directory: examples/minimal
         run: terraform validate
-
-  # plan/apply need GCP credentials (Workload Identity Federation) and a backend.
-  # Add a job here once the WIF provider + service account are configured:
-  #   - google-github-actions/auth@v2 (workload_identity_provider, service_account)
-  #   - terraform init -backend-config=... && terraform plan
