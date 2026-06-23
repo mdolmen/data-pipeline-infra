@@ -1,32 +1,35 @@
 # data-pipeline-infra
 
-Terraform for deploying `data-pipeline-core` workers to GCP. See
-[DESIGN.md](DESIGN.md) for the architecture and [TODO.md](TODO.md) for the build
-plan. **v1** = a whole-source ingest Job on an hourly cron landing raw to GCS,
-plus a transform Job → curated.
+A **Terraform module library** for deploying `data-pipeline-core` workers to GCP —
+the deploy-side analogue of the SDK. It owns the *generic* substrate (Cloud Run
+Jobs, storage, registry, identities, scheduling); it has **no consumer specifics**.
+See [DESIGN.md](DESIGN.md) for the architecture and [TODO.md](TODO.md) for the
+build plan.
+
+Each consuming project keeps its own thin Terraform root **in its own repo** and
+imports these modules — mirroring how each consumer imports the Python SDK. (The
+first consumer, `proba-markets-analysis`, has its root at `infra/dev/` in that
+repo; its deploy runbook lives there too.)
 
 ## Layout
 
 ```
 modules/
-  worker-job/   one Cloud Run Job (+ optional cron + IAM) — granular
-  pipeline/     batteries-included stack: storage + registry + identities + IAM + N jobs
-envs/
-  dev/          thin root: calls modules/pipeline for proba-markets-analysis
+  worker-job/      one Cloud Run Job (+ optional cron + IAM) — granular
+  pipeline/        batteries-included stack: storage + registry + identities + IAM + N jobs
+examples/
+  minimal/         non-deployable fixture so CI can validate the modules
 ```
 
 `modules/pipeline` is the reusable entrypoint — a consumer gets the whole stack by
-calling it with minimal config. `envs/dev` is the worked example (proba) and the
-template a new consumer copies. `modules/worker-job` stays for hand-composition.
+calling it with minimal config. `modules/worker-job` stays for hand-composition.
 
 ## Reuse from another project
 
-`data-pipeline-infra` is a **Terraform module library** (the deploy-side analogue
-of `data-pipeline-core`). A new consumer (e.g. `airbnb-intel`) keeps its own thin
-root in its own repo and imports the `pipeline` module:
+A new consumer (e.g. `airbnb-intel`) keeps its own thin root and imports `pipeline`:
 
 ```hcl
-# airbnb-intel/infra/main.tf
+# airbnb-intel/infra/dev/main.tf
 module "pipeline" {
   source      = "git::https://github.com/<you>/data-pipeline-infra.git//modules/pipeline?ref=v1.0.0"
   project_id  = var.project_id
@@ -42,103 +45,29 @@ module "pipeline" {
 ```
 
 Minimal config = `project_id`, `name_prefix`, `image`, `env_prefix`, and the
-`jobs` map. The consumer still supplies its own `backend.tf` + `provider` block
-(Terraform can't abstract those into a module) and a `terraform.tfvars` — see
-`envs/dev/` for the full shape. Pin `?ref=` to a tag; during co-development point
-`source` at a local path (`../data-pipeline-infra/modules/pipeline`), same as the
-SDK's editable path.
+`jobs` map. The consumer also supplies its own `backend.tf` + `provider` block
+(Terraform can't abstract those into a module) and a `terraform.tfvars`. Use
+`proba-markets-analysis/infra/dev/` as the full worked example.
 
-## Prerequisites
+**Versioning.** Pin `?ref=` to a tag (`git tag v0.1.0`). During co-development,
+point `source` at a local path (`../../../data-pipeline-infra/modules/pipeline`),
+the same editable trick as the SDK — swap to a pinned ref once the API stabilises.
 
-- `terraform >= 1.5`, `gcloud`, Docker.
-- A GCP project with billing enabled, and `gcloud auth application-default login`.
+## What the consumer provides vs what the module wires
 
-## 1. Bootstrap the state bucket (one-time, manual)
-
-Terraform state lives in GCS, but the bucket can't be managed by the state it
-holds — create it by hand once:
-
-```bash
-gcloud storage buckets create gs://<your-tf-state-bucket> \
-  --project <project> --location europe-west9 --uniform-bucket-level-access
-gcloud storage buckets update gs://<your-tf-state-bucket> --versioning
-```
-
-## 2. Init
-
-```bash
-cd envs/dev
-terraform init -backend-config="bucket=<your-tf-state-bucket>"
-```
-
-## 3. Create the registry first (first run only)
-
-Cloud Run validates that a job's image is pullable at creation, so the registry
-must exist and the image must be pushed **before** the jobs are applied. On a new
-project, create just the registry:
-
-```bash
-terraform apply -target=module.pipeline.google_artifact_registry_repository.workers
-```
-
-## 4. Build & push the worker image
-
-The worker depends on the SDK via an editable path, so the build context must
-contain **both** repos as siblings. From the parent directory that holds
-`proba-markets-analysis/` and `data-pipeline-core/`:
-
-```bash
-REPO=europe-west9-docker.pkg.dev/<project>/pma-workers
-gcloud auth configure-docker europe-west9-docker.pkg.dev
-
-TAG=$(git -C proba-markets-analysis rev-parse --short HEAD)
-docker build -f proba-markets-analysis/Dockerfile -t $REPO/worker:$TAG .
-docker push $REPO/worker:$TAG
-# grab the digest to pin:
-gcloud artifacts docker images describe $REPO/worker:$TAG --format='value(image_summary.digest)'
-```
-
-Pin the **digest** (`worker@sha256:…`) into `terraform.tfvars`, not the tag.
-
-## 5. Configure
-
-```bash
-cp terraform.tfvars.example terraform.tfvars
-# edit: project_id, image (the …@sha256:… digest from step 4)
-```
-
-## 6. Plan & apply
-
-```bash
-terraform plan
-terraform apply
-```
-
-Schedulers deploy **paused** (`schedulers_paused = true`), so nothing fires yet.
-
-## 7. Verify, then go live
-
-```bash
-# one manual run of the whole-source loop
-gcloud run jobs execute pma-ingest --region europe-west9 --project <project>
-# confirm raw JSONL landed
-gcloud storage ls gs://pma-<project>-raw/
-
-# happy? unpause the crons:
-#   set schedulers_paused = false in terraform.tfvars, then:
-terraform apply
-```
+| Consumer supplies | Module wires automatically |
+|---|---|
+| `project_id`, `name_prefix`, `image`, `env_prefix` | raw + curated GCS buckets (raw has a retention TTL) |
+| per-job business env (`*_ROLE`, catalog url, dataset, …) | `${env_prefix}_RAW_BUCKET_URL`, dlt `DESTINATION__…`, `*_LOG_FORMAT` |
+| per-job `schedule` (cron) | the Cloud Run Job, the Scheduler trigger, and the IAM to invoke it |
+| `backend.tf` + `provider` + `tfvars` (per Terraform) | Artifact Registry repo, worker + scheduler service accounts, APIs |
 
 ## Notes
 
-- **Egress IP / geo-fencing.** Betclic is FR-facing and fingerprints clients.
-  Cloud Run's egress IP is a Google IP that may not geolocate to FR, so the
-  region (`europe-west9`, Paris) reduces latency but does **not** guarantee an FR
-  egress IP. If Betclic geo-blocks the Cloud Run IP, route egress through a static
-  FR IP (Cloud NAT) or the SDK proxy. Verify with the step-5 manual run before
-  unpausing.
-- **Secrets.** v1 needs none (Betclic is anonymous; GCS auth is via the worker
-  SA). The module supports `secret_env` for when one is needed (proxy creds,
-  Redis URL).
-- **Cost.** Jobs scale to zero; you pay only per execution (seconds). See
+- **Secrets.** Not required by the module. `worker-job` exposes a `secret_env`
+  input (name → Secret Manager secret) for consumers that need one (proxy creds,
+  Redis URL); GCS access is via the worker SA, not a secret.
+- **Cost.** Jobs scale to zero — you pay only per execution (seconds). See
   DESIGN §5.
+- **First apply is two-step** (registry must exist + image pushed before the jobs
+  are created); the consumer's runbook covers the ordering.
