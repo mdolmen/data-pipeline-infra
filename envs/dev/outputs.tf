@@ -1,27 +1,24 @@
 output "raw_bucket" {
   description = "Raw (bronze) JSONL landing bucket."
-  value       = google_storage_bucket.raw.name
+  value       = module.pipeline.raw_bucket
 }
 
 output "curated_bucket" {
   description = "Curated (lakehouse) bucket."
-  value       = google_storage_bucket.curated.name
+  value       = module.pipeline.curated_bucket
 }
 
 output "artifact_registry" {
   description = "Docker repo to push the worker image to."
-  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.workers.repository_id}"
+  value       = module.pipeline.artifact_registry
 }
 
 output "worker_service_account" {
   description = "Runtime SA for the jobs."
-  value       = google_service_account.worker.email
+  value       = module.pipeline.worker_service_account
 }
 
-output "ingest_job" {
-  value = module.ingest_job.job_name
-}
-
-output "transform_job" {
-  value = module.transform_job.job_name
+output "jobs" {
+  description = "Deployed job names."
+  value       = module.pipeline.jobs
 }

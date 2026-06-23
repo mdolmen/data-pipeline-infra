@@ -8,13 +8,45 @@ plus a transform Job → curated.
 ## Layout
 
 ```
-modules/worker-job/   reusable: one Cloud Run Job (+ optional cron + IAM)
-envs/dev/             one environment: storage, registry, identities, the jobs
+modules/
+  worker-job/   one Cloud Run Job (+ optional cron + IAM) — granular
+  pipeline/     batteries-included stack: storage + registry + identities + IAM + N jobs
+envs/
+  dev/          thin root: calls modules/pipeline for proba-markets-analysis
 ```
 
-`envs/dev/main.tf` provisions the shared infra and instantiates `worker-job`
-twice (ingest, transform). A new environment is the same modules with a different
-`terraform.tfvars` and project.
+`modules/pipeline` is the reusable entrypoint — a consumer gets the whole stack by
+calling it with minimal config. `envs/dev` is the worked example (proba) and the
+template a new consumer copies. `modules/worker-job` stays for hand-composition.
+
+## Reuse from another project
+
+`data-pipeline-infra` is a **Terraform module library** (the deploy-side analogue
+of `data-pipeline-core`). A new consumer (e.g. `airbnb-intel`) keeps its own thin
+root in its own repo and imports the `pipeline` module:
+
+```hcl
+# airbnb-intel/infra/main.tf
+module "pipeline" {
+  source      = "git::https://github.com/<you>/data-pipeline-infra.git//modules/pipeline?ref=v1.0.0"
+  project_id  = var.project_id
+  name_prefix = "airbnb"
+  image       = var.image
+  env_prefix  = "AIRBNB"   # SDK-standard env (RAW_BUCKET_URL, …) is auto-wired under this
+
+  jobs = {
+    ingest    = { schedule = "0 * * * *",  env = { AIRBNB_ROLE = "ingest",    AIRBNB_CATALOG_URL = "…" } }
+    transform = { schedule = "20 * * * *", env = { AIRBNB_ROLE = "transform", AIRBNB_DATASET = "stays" } }
+  }
+}
+```
+
+Minimal config = `project_id`, `name_prefix`, `image`, `env_prefix`, and the
+`jobs` map. The consumer still supplies its own `backend.tf` + `provider` block
+(Terraform can't abstract those into a module) and a `terraform.tfvars` — see
+`envs/dev/` for the full shape. Pin `?ref=` to a tag; during co-development point
+`source` at a local path (`../data-pipeline-infra/modules/pipeline`), same as the
+SDK's editable path.
 
 ## Prerequisites
 
