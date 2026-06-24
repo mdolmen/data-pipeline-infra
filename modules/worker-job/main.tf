@@ -68,7 +68,7 @@ resource "google_cloud_scheduler_job" "this" {
 
   name             = "${var.name}-trigger"
   project          = var.project
-  region           = var.region
+  region           = coalesce(var.scheduler_region, var.region)
   schedule         = var.schedule
   time_zone        = var.time_zone
   attempt_deadline = "320s"

@@ -70,6 +70,12 @@ variable "schedule" {
   default     = null
 }
 
+variable "scheduler_region" {
+  description = "Region for the Cloud Scheduler resource. Defaults to var.region; override when the job's region isn't a Cloud Scheduler location (e.g. europe-west9 → europe-west1). The trigger still calls the job in var.region."
+  type        = string
+  default     = null
+}
+
 variable "time_zone" {
   description = "Scheduler time zone."
   type        = string

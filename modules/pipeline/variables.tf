@@ -58,6 +58,12 @@ variable "time_zone" {
   default     = "Europe/Paris"
 }
 
+variable "scheduler_region" {
+  description = "Region for Cloud Scheduler. Defaults to var.region; override when region isn't a Scheduler location (e.g. europe-west9 → europe-west1)."
+  type        = string
+  default     = null
+}
+
 variable "schedulers_paused" {
   description = "Default PAUSED state for all schedulers (per-job overridable). Deploy paused, flip to false to go live."
   type        = bool

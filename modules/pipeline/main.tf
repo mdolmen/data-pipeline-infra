@@ -121,6 +121,7 @@ module "jobs" {
 
   schedule                        = each.value.schedule
   scheduler_service_account_email = google_service_account.scheduler.email
+  scheduler_region                = var.scheduler_region
   time_zone                       = var.time_zone
   paused                          = each.value.paused == null ? var.schedulers_paused : each.value.paused
 
