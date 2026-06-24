@@ -14,70 +14,85 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done.
 
 ---
 
+## Status (2026-06-24) — v1 LIVE
+
+`proba-markets-analysis` is deployed and **hoarding raw hourly** from Cloud Run.
+First production run landed 174 clean 1X2 records across 26 competitions.
+
+- **Done:** Phases 0–5 (Terraform module library, GCS raw+curated, registry,
+  SA/IAM, ingest Job, hourly cron — `pma-ingest-trigger` live in `europe-west1`).
+- **Deployed but paused:** transform Job (`pma-transform-trigger` paused — raw-only
+  for now; not yet run end-to-end). Phase 6 partial.
+- **Known gap (do soon):** no failure/freshness **alert** (Phase 7). A silent
+  collection stall is the one thing that can't be backfilled — the highest-value
+  next infra item.
+- **Open watch item:** ingest **egress block rate** — Cloud Run IPs intermittently
+  get DataDome/geo-blocked; the worker logs it (`catalog has no sport menu …`)
+  and exits cleanly. If frequent → residential FR proxy (`ProxyRouter`).
+- **Deferred:** Phase 7 (full observability), Phase 8 (v2 per-competition cadence),
+  CI image build/push (today via `build.sh`), `latest` role + Redis.
+
+---
+
 ## Phase 0 — Repo & tooling
 
-- [ ] Choose IaC tool (default: **Terraform**) and pin version (`.terraform-version`).
-- [ ] GCS bucket for **remote Terraform state** (versioned + locking).
-- [ ] Project layout: `modules/` (reusable), `envs/dev`, `envs/prod` (or workspaces).
-- [ ] Bootstrap providers (`google`, `google-beta`), backend config, `terraform fmt`/`validate` in CI.
-- [ ] Decide env strategy: separate GCP projects per env (recommended) vs workspaces.
-- [ ] CI: `fmt` → `validate` → `plan` on PR; `apply` gated on merge.
+- [x] Choose IaC tool (**Terraform** 1.9.5, pinned).
+- [x] GCS bucket for **remote Terraform state** (manual bootstrap).
+- [x] Project layout: `modules/{worker-job,pipeline}` library; consumer root lives
+      in the consumer repo (`proba-markets-analysis/infra/dev`); `examples/minimal`.
+- [x] Providers + backend + `terraform fmt`/`validate` in CI.
+- [x] Env strategy: single project for now (`dev`), per-project later.
+- [~] CI: `fmt` + `validate` wired; `plan`/`apply` gating needs WIF creds (deferred).
 
 ## Phase 1 — Container image
 
-- [ ] `Dockerfile` for the worker (uv-based, runs `python -m workers.main`). Pin the
-      base image; `curl_cffi` carries a native lib, so prefer an explicit Dockerfile
-      over buildpacks for reproducibility. (Not strictly mandatory, but recommended.)
-- [ ] **Artifact Registry** repo (Docker).
-- [ ] CI: build + push image, tag by git SHA; expose the digest as a TF input.
+- [x] `Dockerfile` for the worker (uv, named build-context for the SDK,
+      `--platform linux/amd64`).
+- [x] **Artifact Registry** repo (Docker).
+- [~] Build + push by git SHA via `build.sh` (resolves digest, pins tfvars). CI
+      automation deferred.
 
 ## Phase 2 — Storage
 
-- [ ] **GCS raw bucket** (bronze JSONL landing) — lifecycle rule for raw
-      retention (the "raw retention = infra" decision; set the N-day TTL here).
-- [ ] **GCS curated bucket** (Delta/Parquet) — no TTL; versioning on.
-- [ ] Wire `DESTINATION__FILESYSTEM__BUCKET_URL` and the raw bucket URL into the job env.
+- [x] **GCS raw bucket** (`pma-…-raw`) with 30-day retention lifecycle.
+- [x] **GCS curated bucket** (`pma-…-curated`) — versioning on, no TTL.
+- [x] Wire `DESTINATION__FILESYSTEM__BUCKET_URL` + raw bucket URL (auto-injected by
+      the `pipeline` module from `env_prefix`).
 - [ ] (Optional, defer until `latest` role ships) **Memorystore Redis** for hot
       state + cross-run breaker persistence.
 
 ## Phase 3 — Secrets & IAM
 
-- [ ] Per-service **service account**, least privilege:
-      `roles/storage.objectAdmin` scoped to its buckets, `secretmanager.secretAccessor`
-      on its secrets, `run.invoker` (for the scheduler to trigger the Job).
-- [ ] **Secret Manager** secrets for `PMA_*` sensitive config; map → Run Job env.
-- [ ] No secrets in TF state / repo; reference by resource.
+- [x] Per-service **service accounts** (worker + scheduler), least privilege:
+      `objectAdmin` on the buckets, `run.invoker` for the scheduler.
+- [x] **Secret Manager** support in the module (`secret_env`); v1 needs no secrets
+      (Betclic is anonymous, GCS auth via the worker SA).
+- [x] No secrets in TF state / repo.
 
 ## Phase 4 — Cloud Run Job (ingest, whole-source loop) — v1
 
-- [ ] `modules/worker-job`: reusable Cloud Run **Job** (image digest, env, secrets,
-      SA, timeout, max-retries, resources), parameterized per role/service.
-- [ ] Instantiate the **ingest** job for `proba-markets-analysis`: `PMA_ROLE=ingest`,
-      `PMA_INGEST_OUTPUT=raw`, `PMA_CATALOG_URL=…`, `impersonate=firefox`, **no**
-      `PMA_MAX_COMPETITIONS` (loop all ~30 competitions in one run, ~seconds).
-- [ ] Manual `gcloud run jobs execute` → confirm raw JSONL for all competitions
-      lands in the raw bucket.
+- [x] `modules/worker-job` + `modules/pipeline` (batteries-included stack).
+- [x] Instantiate the **ingest** job (`PMA_ROLE=ingest`, raw, firefox, all comps).
+- [x] Manual run confirmed: 174 records / 26 competitions landed in the raw bucket.
 
 ## Phase 5 — Fixed cadence (v1)
 
-- [ ] **Cloud Scheduler** hourly cron → invoke the ingest Run Job (OIDC invoker SA).
-      This is the base 1 req/hour/competition rate (all units, one schedule).
-- [ ] Interval as a per-service TF variable. Do **not** treat the cron as the
-      eternal source of truth for cadence — it's the degenerate "constant delay,
-      all units" case of the v2 mechanism (DESIGN §4/§6).
-- [ ] Job retry policy + alert on repeated failure.
+- [x] **Cloud Scheduler** hourly cron (in `europe-west1` — Paris has no Scheduler;
+      `scheduler_region` knob) → invokes the ingest Run Job. **Live.**
+- [x] Interval as a per-service TF variable (`ingest_schedule`).
+- [~] Job retry policy set (`max_retries`); failure **alert** still TODO → Phase 7.
 
 ## Phase 6 — Transform & latest roles
 
-- [ ] Instantiate **transform** job (`PMA_ROLE=transform`, raw → curated) on its own
-      schedule (the "transform frequency = infra" decision). Batch replay of raw —
-      a Job is the right tool here.
+- [~] **transform** job instantiated (`PMA_ROLE=transform`, raw → curated) — but its
+      trigger is **paused** (raw-only for now, user decision). Not yet run.
 - [ ] (Optional) **latest** job (`PMA_ROLE=latest` → Redis), gated on Phase 2 Redis.
 - [ ] Confirm idempotent replay: re-running transform over the same raw upserts
-      (no dup rows) — validates the Delta-merge contract end-to-end.
+      (no dup rows) — validates the Delta-merge contract end-to-end. **Pending the
+      first transform run.**
 
-> **v1 complete.** Raw is hoarding hourly; transform turns it into curated. The
-> next two phases harden (observability) then evolve (per-competition cadence).
+> **v1 deployed.** Raw is hoarding hourly; transform is built but parked. Next:
+> a freshness/failure alert (Phase 7 slice), then per-competition cadence (Phase 8).
 
 ## Phase 7 — Observability & alerting
 
