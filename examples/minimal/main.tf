@@ -33,3 +33,12 @@ module "pipeline" {
     }
   }
 }
+
+# Native Cloud Run Job alerts (failure + freshness) — no metrics pipeline needed.
+module "observability" {
+  source = "../../modules/observability"
+
+  project_id         = "example-project"
+  name_prefix        = "example"
+  notification_email = "alerts@example.com"
+}
