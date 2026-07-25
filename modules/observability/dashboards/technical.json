@@ -1,0 +1,132 @@
+{
+  "__comment": "Technical/operational dashboard over data-pipeline-core's frozen metric series (ARCHITECTURE §8). Backend-agnostic: the datasource is a template variable, so import against any Prometheus source (Grafana Cloud, Google Managed Prometheus via a Grafana datasource, self-hosted). Keep it simple — a few key panels: runs, in-flight, errors, storage, per day/week/month via the time-range picker.",
+  "title": "Data pipeline — technical",
+  "uid": "dpc-technical",
+  "tags": ["data-pipeline-core", "operational"],
+  "schemaVersion": 39,
+  "editable": true,
+  "refresh": "5m",
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {
+    "refresh_intervals": ["1m", "5m", "15m", "1h"],
+    "time_options": ["1d", "7d", "30d", "90d"]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Prometheus source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Runs (in range)",
+      "description": "Total completed worker runs over the selected range. Switch the range to 1d / 7d / 30d for per-day/week/month totals.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value_and_name" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(increase(worker_runs_total[$__range]))" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Errors (in range)",
+      "description": "Runs that ended in failure (worker_runs_total{status=\"failure\"}) over the range.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }, "color": { "mode": "thresholds" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value_and_name" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(increase(worker_runs_total{status=\"failure\"}[$__range]))" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Error ratio",
+      "description": "Failed runs / total runs over the range.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 0.05 }, { "color": "red", "value": 0.2 } ] }, "color": { "mode": "thresholds" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "value" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(increase(worker_runs_total{status=\"failure\"}[$__range])) / clamp_min(sum(increase(worker_runs_total[$__range])), 1)" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Workers reporting up",
+      "description": "Best-effort 'in-flight': sum of worker_up. NOTE — workers are short-lived Cloud Run Jobs that push once at exit, so this reflects the last push per source, not a true live count. A real 'currently executing' gauge needs the always-on/heartbeat archetype.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "purple" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "value" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(worker_up)" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Runs over time (per source)",
+      "description": "Completed runs per bucket, split by source. Zoom the range to read per-day/week/month cadence.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 40, "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (source) (increase(worker_runs_total[$__interval]))", "legendFormat": "{{source}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Errors over time (per source)",
+      "description": "Failed runs per bucket, split by source.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "red" }, "custom": { "drawStyle": "bars", "fillOpacity": 50, "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (source) (increase(worker_runs_total{status=\"failure\"}[$__interval]))", "legendFormat": "{{source}}" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Records written (per source/stage)",
+      "description": "Rows written to the sink per bucket. Throughput of the pipeline.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 40, "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (source, stage) (increase(records_written_total[$__interval]))", "legendFormat": "{{source}} / {{stage}}" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Storage written (bytes)",
+      "description": "Bytes written per bucket — the storage footprint accrued over time. Sourced from raw-landing; the dlt curated sink reports rows only, so its bytes read 0. Total GCS bucket footprint is a separate probe (deferred).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "bytes", "color": { "mode": "fixed", "fixedColor": "green" }, "custom": { "drawStyle": "bars", "fillOpacity": 40 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["sum"] }, "tooltip": { "mode": "single" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(increase(bytes_written_total[$__interval]))", "legendFormat": "bytes written" }
+      ]
+    }
+  ]
+}
