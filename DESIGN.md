@@ -181,10 +181,16 @@ just the degenerate "constant delay, all units" case of the v2 mechanism.
 - **Config delivery.** Env vars on the Run Job; secrets via Secret Manager → env.
   The SDK reads its config from the environment, so infra's job is to populate it,
   not to know its meaning. Env-var *names* are a per-service prefix.
-- **Observability.** Workers push the SDK's standard metric series at exit; infra
-  provisions the metrics target and the job-failure / freshness
-  (`ingestion_lag_seconds`) / breaker (`circuit_breaker_state`) alerts. Series
-  names/labels are a frozen SDK surface, so dashboards are shared across consumers.
+- **Observability.** Two tiers, split by dependency (`modules/observability`):
+  - **Native alerts** (no metrics pipeline) — Cloud Run Jobs emit
+    `completed_execution_count{result}` to Cloud Monitoring for free, so
+    **job-failure** (`result="failed">0`) and **freshness/stall**
+    (`result="succeeded"` absent for a window) are plain alert policies. These
+    guard the un-backfillable gap and ship first.
+  - **Prometheus tier** — workers push the SDK's standard series at exit; the
+    frozen surface (names/labels) makes the **technical dashboard**
+    (`dashboards/technical.json`) and the **breaker/proxy** alerts shared across
+    consumers. Depends on the metrics backend below.
 - **Environments.** At least `dev` and `prod` as separate projects or workspaces;
   same module, different vars.
 
@@ -195,5 +201,9 @@ just the degenerate "constant delay, all units" case of the v2 mechanism.
 - IaC tool: **Terraform** (assumed) vs Pulumi vs `gcloud` scripts. Pick in Phase 0.
 - Redis: Memorystore vs skip until a service actually deploys the `latest` role.
 - Metrics transport: Managed Prometheus remote-write vs a Pushgateway shim.
+  _(Native failure/freshness alerts are already live without either — see §8. This
+  decision only gates the Prometheus tier: the live dashboard + breaker/proxy
+  alerts. The SDK pushes via the PushGateway protocol today; remote-write is a
+  deferred SDK change.)_
 - v2 trigger plumbing: Cloud Tasks → Run Jobs Admin API (`jobs.run` with
   overrides) vs an intermediary — confirm when v2 is built.

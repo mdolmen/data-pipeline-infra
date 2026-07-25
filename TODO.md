@@ -96,36 +96,44 @@ First production run landed 174 clean 1X2 records across 26 competitions.
 
 ## Phase 7 — Observability & alerting
 
-- [ ] Provision the metrics target (**Managed Prometheus** remote-write or a
-      Pushgateway shim) and wire `metrics_push_gateway`.
-- [ ] Alerts: job failure, **freshness** (`ingestion_lag_seconds` over threshold —
-      a gap in the hoard is the one thing you can't backfill), circuit-breaker open
-      (`circuit_breaker_state`), proxy ratio.
-- [ ] Dashboards reference the SDK's frozen metric series (names/labels are stable).
+Split into two tiers by dependency (`modules/observability`): **native alerts**
+(Cloud Monitoring, no metrics pipeline) ship now and close the un-backfillable
+gap; the **Prometheus tier** (live dashboard + breaker/proxy alerts) waits on the
+metrics-backend decision.
 
-### Technical dashboard (Grafana dashboard-as-JSON) — the "obs #1" deliverable
+### Native alerts — no metrics pipeline (done)
 
-The SDK emits the series; **this repo owns the dashboard that renders them** (SDK =
-what's measured, infra = where it's shown). Keep it **simple — a few key panels**.
-Store the JSON under an `observability/` module and deploy it via the Grafana
-provider (or import file). It reads the frozen SDK series only, so it's shared,
-identical, across every consumer.
+- [x] `modules/observability` — Cloud Monitoring alert policies over the native
+      `run.googleapis.com/job/completed_execution_count{result}` metric + an email
+      notification channel. Scoped to `${name_prefix}-*` jobs.
+- [x] **Job-failure** alert (`result="failed" > 0`) — closes the known gap.
+- [x] **Freshness / silent-stall** alert (absence of `result="succeeded"` for a
+      window, default 2h) — guards the gap that can't be backfilled, without needing
+      `ingestion_lag_seconds`.
+- [ ] **Wire it into the consumer root** (`proba-markets-analysis/infra/dev`):
+      `module "observability"` with `name_prefix = "pma"` + a notify email; apply.
 
-- [ ] `observability/dashboards/technical.json` — a small panel set over the frozen
-      series (all support `sum by (source, stage)` and a `day/week/month` window):
-      - **Runs** — `sum(increase(worker_runs_total[$__range]))`, broken out per
-        `source`/`stage`; time-series by day/week/month.
-      - **In-flight / executing** — best-effort in a push-at-exit model: run-rate
-        (`sum(rate(worker_runs_total[15m]))`) or `sum(worker_up)` reporting up.
-        _(True "currently running" needs the always-on/heartbeat archetype; note the
-        caveat on the panel — jobs push once at exit.)_
-      - **Errors** — `sum(increase(worker_runs_total{status="failure"}[$__range]))`
-        + an error-ratio stat (`failure / total`).
-      - **Storage** — `sum(increase(bytes_written_total[$__range]))` and
-        `records_written_total`; per day/week/month. Bytes come from raw-landing;
-        the dlt curated sink reports rows only.
-- [ ] Provider wiring: Grafana datasource (the Managed Prometheus above) + the
-      dashboard resource; version the JSON in-repo (dashboards-as-JSON per DESIGN).
+### Prometheus tier — needs the metrics backend (DESIGN §8, open)
+
+- [ ] **Decide + provision the metrics backend** and wire `metrics_push_gateway`.
+      The SDK pushes via the **PushGateway protocol** today (remote-write deferred),
+      so the realistic options are: (a) run a **Pushgateway** (Cloud Run service) +
+      a scrape→Grafana Cloud/GMP, or (b) add **remote-write to the SDK** and target
+      Managed Prometheus. This gates the two items below.
+- [ ] `ingestion_lag_seconds` **freshness** and **circuit-breaker** /
+      **proxy-ratio** alerts (these read the SDK custom series, so they need the
+      backend above).
+- [ ] Deploy `dashboards/technical.json` live (point the datasource var at the
+      provisioned Prometheus; optionally via the Grafana TF provider).
+
+### Technical dashboard (Grafana dashboard-as-JSON) — the "obs #1" deliverable (done)
+
+- [x] `modules/observability/dashboards/technical.json` — a small panel set over
+      the frozen series (runs, in-flight best-effort, errors, error-ratio, records &
+      bytes written), datasource as a **template variable** so it imports against any
+      Prometheus backend. Per day/week/month via the range picker.
+- [x] In-flight caveat noted on the panel (push-at-exit jobs → last-push count, not
+      a true live gauge).
 - [ ] **Deferred follow-up:** total **GCS bucket footprint** (GB in raw/curated) is
       a property of the bucket, not a per-run metric — add a size probe/exporter
       (scheduled job → gauge) if a true footprint panel is wanted later.
@@ -170,3 +178,6 @@ What's **GCP-managed**, what's **declared here**, what's **deferred**.
 | Reusability | `modules/worker-job`, per-service instances | Generic + first consumer (proba-markets-analysis), mirrors the SDK model. |
 | IaC tool | Terraform (assumed; confirm Phase 0) | Mainstream GCP IaC; revisit if a reason appears. |
 | Build order | v1: Phases 0–6 → Phase 7 (obs) → Phase 8 (v2) | Launch + hoard first; harden; then per-competition volatility. |
+| Alerts before a metrics pipeline | Native Cloud Monitoring (failure + freshness) ships first, no Prometheus | Cloud Run Jobs emit `completed_execution_count{result}` for free; the un-backfillable gap is closable today, before the metrics-backend decision. |
+| Technical dashboard datasource | Template variable, not a hard-pinned source | Backend is undecided (DESIGN §8); a datasource var keeps the JSON importable against Grafana Cloud / GMP / self-hosted alike. |
+| Metrics backend | Still open — gates only the Prometheus tier | SDK pushes via PushGateway protocol today; remote-write is deferred SDK work. Pick Pushgateway-shim vs GMP+remote-write when breaker/proxy alerting or a live dashboard is actually needed. |
