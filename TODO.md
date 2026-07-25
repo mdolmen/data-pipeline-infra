@@ -103,6 +103,33 @@ First production run landed 174 clean 1X2 records across 26 competitions.
       (`circuit_breaker_state`), proxy ratio.
 - [ ] Dashboards reference the SDK's frozen metric series (names/labels are stable).
 
+### Technical dashboard (Grafana dashboard-as-JSON) — the "obs #1" deliverable
+
+The SDK emits the series; **this repo owns the dashboard that renders them** (SDK =
+what's measured, infra = where it's shown). Keep it **simple — a few key panels**.
+Store the JSON under an `observability/` module and deploy it via the Grafana
+provider (or import file). It reads the frozen SDK series only, so it's shared,
+identical, across every consumer.
+
+- [ ] `observability/dashboards/technical.json` — a small panel set over the frozen
+      series (all support `sum by (source, stage)` and a `day/week/month` window):
+      - **Runs** — `sum(increase(worker_runs_total[$__range]))`, broken out per
+        `source`/`stage`; time-series by day/week/month.
+      - **In-flight / executing** — best-effort in a push-at-exit model: run-rate
+        (`sum(rate(worker_runs_total[15m]))`) or `sum(worker_up)` reporting up.
+        _(True "currently running" needs the always-on/heartbeat archetype; note the
+        caveat on the panel — jobs push once at exit.)_
+      - **Errors** — `sum(increase(worker_runs_total{status="failure"}[$__range]))`
+        + an error-ratio stat (`failure / total`).
+      - **Storage** — `sum(increase(bytes_written_total[$__range]))` and
+        `records_written_total`; per day/week/month. Bytes come from raw-landing;
+        the dlt curated sink reports rows only.
+- [ ] Provider wiring: Grafana datasource (the Managed Prometheus above) + the
+      dashboard resource; version the JSON in-repo (dashboards-as-JSON per DESIGN).
+- [ ] **Deferred follow-up:** total **GCS bucket footprint** (GB in raw/curated) is
+      a property of the bucket, not a per-run metric — add a size probe/exporter
+      (scheduled job → gauge) if a true footprint panel is wanted later.
+
 ## Phase 8 — Per-competition volatility cadence (v2)
 
 > Prereqs (do first): (a) the **consumer/SDK** can target a **single competition**
