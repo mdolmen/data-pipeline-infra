@@ -19,10 +19,24 @@ locals {
 
   # SDK-standard env the module can fill because it owns the buckets. The consumer
   # only supplies business env (role, catalog url, dataset, …) per job.
-  injected_env = {
-    "${var.env_prefix}_LOG_FORMAT"        = "json"
-    "${var.env_prefix}_RAW_BUCKET_URL"    = local.raw_bucket_url
-    "DESTINATION__FILESYSTEM__BUCKET_URL" = local.curated_bucket_url
+  injected_env = merge(
+    {
+      "${var.env_prefix}_LOG_FORMAT"        = "json"
+      "${var.env_prefix}_RAW_BUCKET_URL"    = local.raw_bucket_url
+      "DESTINATION__FILESYSTEM__BUCKET_URL" = local.curated_bucket_url
+    },
+    var.metrics_remote_write_url == "" ? {} : {
+      "${var.env_prefix}_METRICS_REMOTE_WRITE_URL"      = var.metrics_remote_write_url
+      "${var.env_prefix}_METRICS_REMOTE_WRITE_USERNAME" = var.metrics_remote_write_username
+    },
+  )
+
+  # The remote-write token is a secret → injected from Secret Manager, not env.
+  injected_secret_env = var.metrics_remote_write_token_secret == "" ? {} : {
+    "${var.env_prefix}_METRICS_REMOTE_WRITE_PASSWORD" = {
+      secret  = var.metrics_remote_write_token_secret
+      version = "latest"
+    }
   }
 }
 
@@ -100,6 +114,18 @@ resource "google_storage_bucket_iam_member" "worker_curated" {
   member = "serviceAccount:${google_service_account.worker.email}"
 }
 
+# Let the worker read the remote-write token secret (only when one is wired).
+resource "google_secret_manager_secret_iam_member" "worker_metrics_token" {
+  count = var.metrics_remote_write_token_secret == "" ? 0 : 1
+
+  project   = var.project_id
+  secret_id = var.metrics_remote_write_token_secret
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.worker.email}"
+
+  depends_on = [google_project_service.apis]
+}
+
 # --- jobs ---
 
 module "jobs" {
@@ -112,7 +138,8 @@ module "jobs" {
   image                 = var.image
   service_account_email = google_service_account.worker.email
 
-  env = merge(local.injected_env, each.value.env)
+  env        = merge(local.injected_env, each.value.env)
+  secret_env = local.injected_secret_env
 
   cpu             = each.value.cpu
   memory          = each.value.memory

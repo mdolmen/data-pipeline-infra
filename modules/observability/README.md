@@ -51,10 +51,37 @@ datasource), or wire the Grafana Terraform provider once the metrics backend is
 chosen. It stays a versioned in-repo artifact either way (dashboards-as-JSON,
 DESIGN §7).
 
-## What's still open
+## Wiring live metrics (Grafana Cloud, via remote-write)
 
-The dashboard shows live data, and the breaker/proxy alerts become buildable,
-only once the **metrics backend** is provisioned and `metrics_push_gateway` is
-wired on the jobs — the open decision in DESIGN §8 (Managed Prometheus
-remote-write vs a Pushgateway shim; the SDK pushes via the PushGateway protocol
-today). Until then, failure + freshness cover the critical gap.
+Backend decided: **Grafana Cloud**, fed by the SDK's **Prometheus remote-write**
+(`obs/remote_write.py`) — each worker writes its final series to Grafana Cloud's
+Prometheus at exit, no PushGateway/scraper. Turn it on by setting three vars on
+the **`pipeline`** module (it injects them as `${env_prefix}_METRICS_REMOTE_WRITE_*`
+and grants the worker SA access to the token secret):
+
+```hcl
+module "pipeline" {
+  # …
+  metrics_remote_write_url          = "https://<stack>.grafana.net/api/prom/push"
+  metrics_remote_write_username     = "123456"       # Grafana Cloud instance id
+  metrics_remote_write_token_secret = "grafana-rw-token" # Secret Manager secret id
+}
+```
+
+### Out-of-band steps (can't be Terraformed — external account + a secret)
+
+1. Create a **Grafana Cloud** stack (free tier is enough). From *Connections →
+   Prometheus / remote-write*, copy the **remote-write URL** and **instance id**
+   (username) and generate an **API token** (write scope).
+2. Put the token in **Secret Manager**: `gcloud secrets create grafana-rw-token
+   --data-file=-` (paste the token). Never in tfvars/state.
+3. Set the three vars above; `terraform apply`. Workers now remote-write on exit.
+4. In Grafana, **import `dashboards/technical.json`** and pick your Grafana Cloud
+   Prometheus datasource. Live within a run or two.
+
+## Still backend-dependent
+
+The **breaker/proxy alerts** (and the `ingestion_lag_seconds` freshness variant)
+read the SDK's custom series, so they only become buildable once metrics are
+actually flowing (step 3 above). The native failure + freshness alerts don't wait
+on any of this.
