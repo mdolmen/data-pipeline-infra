@@ -51,6 +51,13 @@ datasource), or wire the Grafana Terraform provider once the metrics backend is
 chosen. It stays a versioned in-repo artifact either way (dashboards-as-JSON,
 DESIGN §7).
 
+**Counter panels use `sum_over_time()`, not `increase()`/`rate()`.** Workers are
+short-lived jobs that push **one sample per run** (each run's counter starts at
+0), so the counter series is sparse and non-monotonic across runs.
+`increase()`/`rate()` need ≥2 samples per bucket and return *nothing* on sparse
+push data — which looks like an empty panel. `sum_over_time()` sums the per-run
+values, the correct aggregation for push-once counters. Don't switch them back.
+
 ## Wiring live metrics (Grafana Cloud, via OTLP)
 
 Backend decided: **Grafana Cloud**, fed by the SDK's **OTLP/HTTP push**
