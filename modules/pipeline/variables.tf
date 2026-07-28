@@ -30,25 +30,25 @@ variable "raw_retention_days" {
   default     = 30
 }
 
-# --- metrics remote-write (Prometheus → TSDB, e.g. Grafana Cloud) ---
-# Set the url to turn on remote-write on every job. The SDK writes its final
-# series to this endpoint at exit (preferred over a PushGateway for short-lived
-# jobs). Injected as ${env_prefix}_METRICS_REMOTE_WRITE_{URL,USERNAME,PASSWORD}.
+# --- metrics OTLP push (→ an OTLP backend, e.g. Grafana Cloud's OTLP gateway) ---
+# Set the url to turn on OTLP push on every job. The SDK writes its final series
+# to this endpoint at exit (preferred over a PushGateway for short-lived jobs).
+# Injected as ${env_prefix}_METRICS_OTLP_{URL,USERNAME,PASSWORD}.
 
-variable "metrics_remote_write_url" {
-  description = "Prometheus remote-write endpoint (e.g. https://<stack>.grafana.net/api/prom/push). Empty = remote-write off (jobs fall back to metrics_push_gateway / no push)."
+variable "metrics_otlp_url" {
+  description = "OTLP/HTTP metrics endpoint (e.g. https://otlp-gateway-<zone>.grafana.net/otlp/v1/metrics). Empty = OTLP off (jobs fall back to metrics_push_gateway / no push)."
   type        = string
   default     = ""
 }
 
-variable "metrics_remote_write_username" {
-  description = "Basic-auth username for remote-write (Grafana Cloud: the numeric instance id). Non-secret."
+variable "metrics_otlp_username" {
+  description = "Basic-auth username for OTLP (Grafana Cloud: the numeric instance id). Non-secret."
   type        = string
   default     = ""
 }
 
-variable "metrics_remote_write_token_secret" {
-  description = "Secret Manager secret id holding the remote-write API token (the basic-auth password). Empty = no token wired. Create the secret out of band; never put the token in tfvars/state."
+variable "metrics_otlp_token_secret" {
+  description = "Secret Manager secret id holding the OTLP API token (the basic-auth password). Empty = no token wired. Create the secret out of band; never put the token in tfvars/state."
   type        = string
   default     = ""
 }

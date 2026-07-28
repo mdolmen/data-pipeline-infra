@@ -200,11 +200,11 @@ just the degenerate "constant delay, all units" case of the v2 mechanism.
 
 - IaC tool: **Terraform** (assumed) vs Pulumi vs `gcloud` scripts. Pick in Phase 0.
 - Redis: Memorystore vs skip until a service actually deploys the `latest` role.
-- ~~Metrics transport~~ **Decided: Grafana Cloud via Prometheus remote-write.**
-  Short-lived jobs write their final series to Grafana Cloud's Prometheus at exit
-  (SDK `obs/remote_write.py`) — no PushGateway/scraper always-on box. The
-  `pipeline` module injects the endpoint + a Secret-Manager token. Native
-  failure/freshness alerts (§8) don't depend on it; the live dashboard +
-  breaker/proxy alerts do.
+- ~~Metrics transport~~ **Decided: Grafana Cloud via OTLP/HTTP push.**
+  Short-lived jobs write their final series to Grafana Cloud's OTLP gateway at exit
+  (SDK `obs/otlp_push.py`) — no PushGateway/scraper always-on box. (Grafana Cloud
+  surfaces OTLP, not remote-write, for custom metrics.) The `pipeline` module
+  injects the endpoint + a Secret-Manager token. Native failure/freshness alerts
+  (§8) don't depend on it; the live dashboard + breaker/proxy alerts do.
 - v2 trigger plumbing: Cloud Tasks → Run Jobs Admin API (`jobs.run` with
   overrides) vs an intermediary — confirm when v2 is built.

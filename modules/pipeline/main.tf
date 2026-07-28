@@ -25,16 +25,16 @@ locals {
       "${var.env_prefix}_RAW_BUCKET_URL"    = local.raw_bucket_url
       "DESTINATION__FILESYSTEM__BUCKET_URL" = local.curated_bucket_url
     },
-    var.metrics_remote_write_url == "" ? {} : {
-      "${var.env_prefix}_METRICS_REMOTE_WRITE_URL"      = var.metrics_remote_write_url
-      "${var.env_prefix}_METRICS_REMOTE_WRITE_USERNAME" = var.metrics_remote_write_username
+    var.metrics_otlp_url == "" ? {} : {
+      "${var.env_prefix}_METRICS_OTLP_URL"      = var.metrics_otlp_url
+      "${var.env_prefix}_METRICS_OTLP_USERNAME" = var.metrics_otlp_username
     },
   )
 
-  # The remote-write token is a secret → injected from Secret Manager, not env.
-  injected_secret_env = var.metrics_remote_write_token_secret == "" ? {} : {
-    "${var.env_prefix}_METRICS_REMOTE_WRITE_PASSWORD" = {
-      secret  = var.metrics_remote_write_token_secret
+  # The OTLP token is a secret → injected from Secret Manager, not env.
+  injected_secret_env = var.metrics_otlp_token_secret == "" ? {} : {
+    "${var.env_prefix}_METRICS_OTLP_PASSWORD" = {
+      secret  = var.metrics_otlp_token_secret
       version = "latest"
     }
   }
@@ -114,12 +114,12 @@ resource "google_storage_bucket_iam_member" "worker_curated" {
   member = "serviceAccount:${google_service_account.worker.email}"
 }
 
-# Let the worker read the remote-write token secret (only when one is wired).
+# Let the worker read the OTLP token secret (only when one is wired).
 resource "google_secret_manager_secret_iam_member" "worker_metrics_token" {
-  count = var.metrics_remote_write_token_secret == "" ? 0 : 1
+  count = var.metrics_otlp_token_secret == "" ? 0 : 1
 
   project   = var.project_id
-  secret_id = var.metrics_remote_write_token_secret
+  secret_id = var.metrics_otlp_token_secret
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.worker.email}"
 

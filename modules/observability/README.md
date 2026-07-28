@@ -51,33 +51,42 @@ datasource), or wire the Grafana Terraform provider once the metrics backend is
 chosen. It stays a versioned in-repo artifact either way (dashboards-as-JSON,
 DESIGN §7).
 
-## Wiring live metrics (Grafana Cloud, via remote-write)
+## Wiring live metrics (Grafana Cloud, via OTLP)
 
-Backend decided: **Grafana Cloud**, fed by the SDK's **Prometheus remote-write**
-(`obs/remote_write.py`) — each worker writes its final series to Grafana Cloud's
-Prometheus at exit, no PushGateway/scraper. Turn it on by setting three vars on
-the **`pipeline`** module (it injects them as `${env_prefix}_METRICS_REMOTE_WRITE_*`
-and grants the worker SA access to the token secret):
+Backend decided: **Grafana Cloud**, fed by the SDK's **OTLP/HTTP push**
+(`obs/otlp_push.py`) — each worker writes its final series to Grafana Cloud's OTLP
+gateway at exit, no PushGateway/scraper. (Grafana Cloud surfaces OTLP, not
+Prometheus remote-write, for custom metrics.) Turn it on by setting three vars on
+the **`pipeline`** module (it injects them as `${env_prefix}_METRICS_OTLP_*` and
+grants the worker SA access to the token secret):
 
 ```hcl
 module "pipeline" {
   # …
-  metrics_remote_write_url          = "https://<stack>.grafana.net/api/prom/push"
-  metrics_remote_write_username     = "123456"       # Grafana Cloud instance id
-  metrics_remote_write_token_secret = "grafana-rw-token" # Secret Manager secret id
+  metrics_otlp_url          = "https://otlp-gateway-prod-eu-central-0.grafana.net/otlp/v1/metrics"
+  metrics_otlp_username     = "1737062"          # Grafana Cloud instance id
+  metrics_otlp_token_secret = "grafana-otlp-token" # Secret Manager secret id
 }
 ```
 
 ### Out-of-band steps (can't be Terraformed — external account + a secret)
 
-1. Create a **Grafana Cloud** stack (free tier is enough). From *Connections →
-   Prometheus / remote-write*, copy the **remote-write URL** and **instance id**
-   (username) and generate an **API token** (write scope).
-2. Put the token in **Secret Manager**: `gcloud secrets create grafana-rw-token
+1. Create a **Grafana Cloud** stack (free tier is enough). From *Connections → Add
+   new connection → HTTP Metrics* (or the stack's OTLP details), copy the **OTLP
+   endpoint** and **instance id** (username) and generate an **access-policy token**
+   with scope `metrics:write`.
+2. Put the token in **Secret Manager**: `gcloud secrets create grafana-otlp-token
    --data-file=-` (paste the token). Never in tfvars/state.
-3. Set the three vars above; `terraform apply`. Workers now remote-write on exit.
-4. In Grafana, **import `dashboards/technical.json`** and pick your Grafana Cloud
-   Prometheus datasource. Live within a run or two.
+3. Set the three vars above; `terraform apply`. Workers now OTLP-push on exit.
+4. In Grafana, **import `dashboards/technical.json`** and set the "Prometheus
+   source" variable to your Grafana Cloud Prometheus datasource. Live within a run
+   or two.
+
+**Metric names under OTLP.** The SDK sends names exactly as Prometheus exposes
+them, with no OTLP `unit`, so Grafana's OTLP→Prometheus translation keeps them
+unchanged (`worker_runs_total`, `worker_up`, …) and the dashboard needs no edits.
+If your stack has non-default OTLP suffix settings, check the actual names in
+Grafana → Explore on the first push and align the dashboard queries if needed.
 
 ## Still backend-dependent
 

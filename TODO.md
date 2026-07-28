@@ -113,20 +113,21 @@ metrics-backend decision.
 - [ ] **Wire it into the consumer root** (`proba-markets-analysis/infra/dev`):
       `module "observability"` with `name_prefix = "pma"` + a notify email; apply.
 
-### Prometheus tier — Grafana Cloud via remote-write
+### Prometheus tier — Grafana Cloud via OTLP
 
-Backend decided: **Grafana Cloud**, fed by the SDK's **Prometheus remote-write**
-(no PushGateway/scraper — short-lived jobs write to the TSDB at exit).
+Backend decided: **Grafana Cloud**, fed by the SDK's **OTLP/HTTP push** (no
+PushGateway/scraper — short-lived jobs write to the OTLP gateway at exit). Grafana
+Cloud surfaces OTLP, not remote-write, for custom metrics.
 
-- [x] **SDK remote-write** (`data-pipeline-core` `obs/remote_write.py`) — worker
-      pushes its final series to the TSDB at exit; zero new deps.
-- [x] **`pipeline` module wires it** — `metrics_remote_write_url` / `_username` /
-      `_token_secret` inject `${env_prefix}_METRICS_REMOTE_WRITE_*` env + a
+- [x] **SDK OTLP push** (`data-pipeline-core` `obs/otlp_push.py`) — worker pushes
+      its final series to the OTLP gateway at exit; zero new deps.
+- [x] **`pipeline` module wires it** — `metrics_otlp_url` / `_username` /
+      `_token_secret` inject `${env_prefix}_METRICS_OTLP_*` env + a
       Secret-Manager-backed token, and grant the worker SA `secretAccessor`.
-- [ ] **Out-of-band (you):** create the Grafana Cloud stack, generate the
-      remote-write token → Secret Manager, set the three vars on the consumer root,
-      apply. Import `dashboards/technical.json` and pick the datasource. _(See
-      `modules/observability/README.md`.)_
+- [ ] **Out-of-band (you):** create the Grafana Cloud stack, generate the OTLP
+      access-policy token (`metrics:write`) → Secret Manager, set the three vars on
+      the consumer root, apply. Import `dashboards/technical.json` and set the
+      datasource. _(See `modules/observability/README.md`.)_
 - [ ] `ingestion_lag_seconds` **freshness** + **circuit-breaker** / **proxy-ratio**
       alerts — build once series are flowing (they read the SDK custom series).
       Candidate home: a Grafana-managed alert or a Prometheus rule beside the
@@ -186,4 +187,4 @@ What's **GCP-managed**, what's **declared here**, what's **deferred**.
 | Build order | v1: Phases 0–6 → Phase 7 (obs) → Phase 8 (v2) | Launch + hoard first; harden; then per-competition volatility. |
 | Alerts before a metrics pipeline | Native Cloud Monitoring (failure + freshness) ships first, no Prometheus | Cloud Run Jobs emit `completed_execution_count{result}` for free; the un-backfillable gap is closable today, before the metrics-backend decision. |
 | Technical dashboard datasource | Template variable, not a hard-pinned source | Backend is undecided (DESIGN §8); a datasource var keeps the JSON importable against Grafana Cloud / GMP / self-hosted alike. |
-| Metrics backend | **Grafana Cloud** via SDK Prometheus **remote-write** | Short-lived jobs write to the TSDB at exit — no always-on PushGateway + scraper. Grafana Cloud bundles TSDB + dashboards; remote-write is the SDK's preferred path (now built). Token via Secret Manager. |
+| Metrics backend | **Grafana Cloud** via SDK **OTLP/HTTP push** | Short-lived jobs write to Grafana Cloud's OTLP gateway at exit — no always-on PushGateway + scraper. Grafana Cloud surfaces OTLP (not remote-write) for custom metrics; OTLP-JSON is also zero-dep in the SDK. Token via Secret Manager. |
