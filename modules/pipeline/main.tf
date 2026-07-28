@@ -152,5 +152,10 @@ module "jobs" {
   time_zone                       = var.time_zone
   paused                          = each.value.paused == null ? var.schedulers_paused : each.value.paused
 
-  depends_on = [google_project_service.apis]
+  # The secret grant must land before the job, or Cloud Run's create/update-time
+  # secret-access check fails with a permission error on the worker SA.
+  depends_on = [
+    google_project_service.apis,
+    google_secret_manager_secret_iam_member.worker_metrics_token,
+  ]
 }
