@@ -126,6 +126,26 @@ resource "google_secret_manager_secret_iam_member" "worker_metrics_token" {
   depends_on = [google_project_service.apis]
 }
 
+# Secrets declared by individual jobs (proxy credentials, API keys). Deduped
+# across jobs, since two jobs may reference the same secret.
+locals {
+  job_secret_ids = toset([
+    for entry in flatten([for job in values(var.jobs) : values(job.secret_env)]) :
+    entry.secret
+  ])
+}
+
+resource "google_secret_manager_secret_iam_member" "worker_job_secrets" {
+  for_each = local.job_secret_ids
+
+  project   = var.project_id
+  secret_id = each.value
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.worker.email}"
+
+  depends_on = [google_project_service.apis]
+}
+
 # --- jobs ---
 
 module "jobs" {
@@ -139,7 +159,7 @@ module "jobs" {
   service_account_email = google_service_account.worker.email
 
   env        = merge(local.injected_env, each.value.env)
-  secret_env = local.injected_secret_env
+  secret_env = merge(local.injected_secret_env, each.value.secret_env)
 
   cpu             = each.value.cpu
   memory          = each.value.memory
@@ -157,5 +177,6 @@ module "jobs" {
   depends_on = [
     google_project_service.apis,
     google_secret_manager_secret_iam_member.worker_metrics_token,
+    google_secret_manager_secret_iam_member.worker_job_secrets,
   ]
 }

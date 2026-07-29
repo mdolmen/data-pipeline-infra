@@ -58,6 +58,11 @@ variable "jobs" {
     Workers to deploy, keyed by short name (e.g. ingest, transform). Each:
       env             — business env vars (role, catalog url, dataset, …). The
                         module merges in the SDK-standard env automatically.
+      secret_env      — env vars backed by Secret Manager, for values that must
+                        not sit in plain env (proxy credentials, API keys):
+                        NAME => { secret = <secret id>, version = <version> }.
+                        The secret must exist; the module grants the worker SA
+                        read access to it.
       schedule        — cron for a Cloud Scheduler trigger; null = no schedule.
       cpu/memory      — task resource limits.
       timeout_seconds — max wall-clock per execution.
@@ -65,7 +70,11 @@ variable "jobs" {
       paused          — override schedulers_paused for this job (null = inherit).
   EOT
   type = map(object({
-    env             = optional(map(string), {})
+    env = optional(map(string), {})
+    secret_env = optional(map(object({
+      secret  = string
+      version = optional(string, "latest")
+    })), {})
     schedule        = optional(string)
     cpu             = optional(string, "1")
     memory          = optional(string, "512Mi")
