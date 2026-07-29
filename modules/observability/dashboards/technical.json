@@ -1,15 +1,15 @@
 {
-  "__comment": "Technical/operational dashboard over data-pipeline-core's frozen metric series (ARCHITECTURE §8). Backend-agnostic: the datasource is a template variable, so import against any Prometheus source (Grafana Cloud, Google Managed Prometheus via a Grafana datasource, self-hosted). Keep it simple — a few key panels: runs, in-flight, errors, storage, per day/week/month via the time-range picker. NOTE: counter panels use sum_over_time(), NOT increase()/rate(). Workers are short-lived jobs that push ONE sample per run (each run's counter starts at 0), so the series is sparse and non-monotonic across runs; increase()/rate() need >=2 samples per bucket and return nothing on sparse push data. sum_over_time() sums the per-run values, which is the correct aggregation here. Do not switch these back to increase().",
+  "__comment": "Technical/operational dashboard over data-pipeline-core's frozen metric series (ARCHITECTURE §8). Backend-agnostic: the datasource is a template variable, so import against any Prometheus source (Grafana Cloud, Google Managed Prometheus, self-hosted). Seven panels: total runs / errors / error-ratio (stats), runs & errors per source and records & bytes written (graphs). NOTE: counter panels use sum_over_time(), NOT increase()/rate(). Workers are short-lived jobs that push ONE sample per run (each run's counter starts at 0), so the series is sparse and non-monotonic across runs; increase()/rate() need >=2 samples per bucket and return nothing on sparse push data. sum_over_time() sums the per-run values — the correct aggregation. Do not switch these back to increase(). Actual GCS bucket footprint is a Google Cloud Monitoring metric (storage.googleapis.com/storage/v2/total_bytes), not in these series — add it via a Cloud Monitoring datasource.",
   "title": "Data pipeline — technical",
   "uid": "dpc-technical",
   "tags": ["data-pipeline-core", "operational"],
   "schemaVersion": 39,
   "editable": true,
   "refresh": "5m",
-  "time": { "from": "now-30d", "to": "now" },
+  "time": { "from": "now-24h", "to": "now" },
   "timepicker": {
     "refresh_intervals": ["1m", "5m", "15m", "1h"],
-    "time_options": ["1d", "7d", "30d", "90d"]
+    "time_options": ["1h", "6h", "24h", "7d", "30d"]
   },
   "templating": {
     "list": [
@@ -27,12 +27,12 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Runs (in range)",
-      "description": "Total completed worker runs over the selected range. Switch the range to 1d / 7d / 30d for per-day/week/month totals.",
+      "title": "Total workers executed",
+      "description": "Total completed worker runs (success + failure) over the selected range. One sample per run, summed. Set the range to 1d / 7d / 30d for per-day/week/month totals.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 0 },
       "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value_and_name" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value" },
       "targets": [
         { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(sum_over_time(worker_runs_total[$__range]))" }
       ]
@@ -40,12 +40,12 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Errors (in range)",
+      "title": "Total errors",
       "description": "Runs that ended in failure (worker_runs_total{status=\"failure\"}) over the range.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 0 },
       "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }, "color": { "mode": "thresholds" } }, "overrides": [] },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value_and_name" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value" },
       "targets": [
         { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(sum_over_time(worker_runs_total{status=\"failure\"}[$__range]))" }
       ]
@@ -56,7 +56,7 @@
       "title": "Error ratio",
       "description": "Failed runs / total runs over the range.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 0 },
       "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 0.05 }, { "color": "red", "value": 0.2 } ] }, "color": { "mode": "thresholds" } }, "overrides": [] },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "value" },
       "targets": [
@@ -65,21 +65,8 @@
     },
     {
       "id": 4,
-      "type": "stat",
-      "title": "Workers reporting up",
-      "description": "Best-effort 'in-flight': sum of worker_up. NOTE — workers are short-lived Cloud Run Jobs that push once at exit, so this reflects the last push per source, not a true live count. A real 'currently executing' gauge needs the always-on/heartbeat archetype.",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
-      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "purple" } }, "overrides": [] },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "value" },
-      "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(worker_up)" }
-      ]
-    },
-    {
-      "id": 5,
       "type": "timeseries",
-      "title": "Runs over time (per source)",
+      "title": "Runs per source",
       "description": "Completed runs per bucket, split by source. Zoom the range to read per-day/week/month cadence.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
@@ -90,9 +77,9 @@
       ]
     },
     {
-      "id": 6,
+      "id": 5,
       "type": "timeseries",
-      "title": "Errors over time (per source)",
+      "title": "Errors per source",
       "description": "Failed runs per bucket, split by source.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
@@ -103,29 +90,29 @@
       ]
     },
     {
-      "id": 7,
+      "id": 6,
       "type": "timeseries",
-      "title": "Records written (per source/stage)",
-      "description": "Rows written to the sink per bucket. Throughput of the pipeline.",
+      "title": "Records written",
+      "description": "Rows written to the sink per bucket, split by source. The pipeline's throughput.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 40, "stacking": { "mode": "normal" } } }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] }, "tooltip": { "mode": "multi" } },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (source, stage) (sum_over_time(records_written_total[$__interval]))", "legendFormat": "{{source}} / {{stage}}" }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (source) (sum_over_time(records_written_total[$__interval]))", "legendFormat": "{{source}}" }
       ]
     },
     {
-      "id": 8,
+      "id": 7,
       "type": "timeseries",
       "title": "Storage written (bytes)",
-      "description": "Bytes written per bucket — the storage footprint accrued over time. Sourced from raw-landing; the dlt curated sink reports rows only, so its bytes read 0. Total GCS bucket footprint is a separate probe (deferred).",
+      "description": "Bytes written per bucket, split by source — the storage footprint accrued over time. Sourced from raw-landing (ingest); the console sink reports 0. Actual GCS bucket size is a separate Cloud Monitoring metric.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
-      "fieldConfig": { "defaults": { "unit": "bytes", "color": { "mode": "fixed", "fixedColor": "green" }, "custom": { "drawStyle": "bars", "fillOpacity": 40 } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["sum"] }, "tooltip": { "mode": "single" } },
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "drawStyle": "bars", "fillOpacity": 40, "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] }, "tooltip": { "mode": "multi" } },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(sum_over_time(bytes_written_total[$__interval]))", "legendFormat": "bytes written" }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (source) (sum_over_time(bytes_written_total[$__interval]))", "legendFormat": "{{source}}" }
       ]
     }
   ]
