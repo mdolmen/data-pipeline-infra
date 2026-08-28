@@ -138,6 +138,18 @@ enforced by the code. Tasks are in `TODO.md` under "Hardening"; rationale here.
   binding; two jobs referencing the same secret produce exactly one IAM member;
   `injected_env` carries `${env_prefix}_RAW_BUCKET_URL`; `metrics_otlp_url = ""`
   creates no token grant and no OTLP env. This is the single biggest gap.
+
+  **Done.** 11 runs across `modules/pipeline/tests/` and
+  `modules/worker-job/tests/`, wired into CI. Two things came out differently
+  from the scoping above. The suite lives *per module* rather than against
+  `examples/minimal`: test assertions can only reach resources in the root module
+  of the configuration under test, and from the fixture every resource worth
+  asserting is inside `module.pipeline`, reachable only through outputs — which
+  is also why `pipeline` gained an `injected_env` output. And the OTLP assertion
+  turned out to be checking a property the code did not have; fixing that first
+  (the inputs are now validated as a set) is what the extra rejection runs pin.
+  Every assertion was mutation-checked — break the guard, watch the run fail —
+  because a test that has never failed proves nothing.
 - **H2 — "Least privilege" is claimed but not delivered.** DESIGN §3 and Phase 3
   both say least privilege; the code grants `roles/storage.objectAdmin` on *both*
   buckets. The worker only ever writes to raw, yet the grant lets it delete the
@@ -221,3 +233,6 @@ requests.
 | Metrics backend | **Grafana Cloud** via SDK **OTLP/HTTP push** | Short-lived jobs write at exit — no always-on PushGateway + scraper. Grafana Cloud surfaces OTLP (not remote-write) for custom metrics; OTLP-JSON is zero-dep in the SDK |
 | Counter panels | `sum_over_time()`, not `increase()`/`rate()` | Push-once counters are sparse and reset per run; rate functions return nothing and the panel reads as empty |
 | Build order | v1: Phases 0–6 → Phase 7 (obs) → Phase 8 (v2) | Launch + hoard first; harden; then per-unit volatility |
+| OTLP inputs | url + username + token secret validated as **all-or-nothing** | One feature, three inputs. Each half-configured state failed quietly: a url without credentials pushes to an authenticated gateway and the SDK swallows the failure by design (a permanently empty dashboard on a worker reporting success); credentials without a url leave a `secretAccessor` grant on a switched-off feature. Gating alone fixes only the second, so the invalid states are rejected at plan time instead. Costs the unauthenticated-collector case — indistinguishable from a forgotten token, and no consumer needs it |
+| Terraform floor | `>= 1.9` across all modules | Variable `validation` may reference *other* variables only from 1.9. Needed by the OTLP validation and by H4; raised before `v0.1.0` is tagged, so it is not a constraint change after consumers pin a ref |
+| Module tests | Per module (`modules/*/tests/`), not against `examples/minimal` | `terraform test` assertions reach only the root module of the configuration under test; from the fixture every resource worth asserting sits inside `module.pipeline`. The fixture stays what it always was — a `validate` target |
