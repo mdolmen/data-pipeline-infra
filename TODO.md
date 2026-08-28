@@ -1,190 +1,115 @@
-# data-pipeline-infra — Build Plan
+# data-pipeline-infra — TODO
 
-Phased, tracer-bullet order. **v1 = Phases 0–6**: one Cloud Run Job that loops all
-competitions on a fixed hourly cron, landing raw — launch this and start hoarding
-data. Then **Phase 7 (observability)**, then **Phase 8 (v2, per-competition
-volatility cadence)** last. See `DESIGN.md` for the architecture and the
-service→infra contract.
+Task list only. Strategy, phase goals, the hardening brief and the decision log:
+[`DEVELOPMENT.md`](DEVELOPMENT.md). Architecture: [`DESIGN.md`](DESIGN.md).
 
-Substrate is **Cloud Run Jobs** throughout (scale-to-zero, no warm Service, no
-HTTP serve layer) — the load is ~30 competitions × ~1 req/hour (volatility-
-adjusted), i.e. a few requests per *minute* at peak. See DESIGN §5.
+**v1 = Phases 0–6** (live). Next: **Hardening** and the open Phase 7 wiring, then
+Phase 8 (per-unit cadence).
 
 Legend: `[ ]` todo · `[~]` in progress · `[x]` done.
 
 ---
 
-## Status (2026-06-24) — v1 LIVE
-
-`proba-markets-analysis` is deployed and **hoarding raw hourly** from Cloud Run.
-First production run landed 174 clean 1X2 records across 26 competitions.
-
-- **Done:** Phases 0–5 (Terraform module library, GCS raw+curated, registry,
-  SA/IAM, ingest Job, hourly cron — `pma-ingest-trigger` live in `europe-west1`).
-- **Deployed but paused:** transform Job (`pma-transform-trigger` paused — raw-only
-  for now; not yet run end-to-end). Phase 6 partial.
-- **Known gap (do soon):** no failure/freshness **alert** (Phase 7). A silent
-  collection stall is the one thing that can't be backfilled — the highest-value
-  next infra item.
-- **Open watch item:** ingest **egress block rate** — Cloud Run IPs intermittently
-  get DataDome/geo-blocked; the worker logs it (`catalog has no sport menu …`)
-  and exits cleanly. If frequent → residential FR proxy (`ProxyRouter`).
-- **Deferred:** Phase 7 (full observability), Phase 8 (v2 per-competition cadence),
-  CI image build/push (today via `build.sh`), `latest` role + Redis.
-
----
-
 ## Phase 0 — Repo & tooling
 
-- [x] Choose IaC tool (**Terraform** 1.9.5, pinned).
-- [x] GCS bucket for **remote Terraform state** (manual bootstrap).
-- [x] Project layout: `modules/{worker-job,pipeline}` library; consumer root lives
-      in the consumer repo (`proba-markets-analysis/infra/dev`); `examples/minimal`.
-- [x] Providers + backend + `terraform fmt`/`validate` in CI.
-- [x] Env strategy: single project for now (`dev`), per-project later.
-- [~] CI: `fmt` + `validate` wired; `plan`/`apply` gating needs WIF creds (deferred).
+- [x] Choose IaC tool — Terraform 1.9.5, pinned via `.terraform-version` + `required_version`
+- [x] GCS bucket for remote Terraform state (manual bootstrap, versioned)
+- [x] Layout: `modules/{worker-job,pipeline,observability}` library; consumer roots live in consumer repos; `examples/minimal` as the CI fixture
+- [x] `terraform fmt -check -recursive` + `terraform validate` in CI against `examples/minimal` (no backend, no creds)
+- [x] Env strategy: single `dev` project for now, per-project later
+- [ ] CI `plan` / `apply` gating — needs Workload Identity Federation credentials (deferred)
 
 ## Phase 1 — Container image
 
-- [x] `Dockerfile` for the worker (uv, named build-context for the SDK,
-      `--platform linux/amd64`).
-- [x] **Artifact Registry** repo (Docker).
-- [~] Build + push by git SHA via `build.sh` (resolves digest, pins tfvars). CI
-      automation deferred.
+- [x] `Dockerfile` for the worker (uv, named build-context for the SDK, `--platform linux/amd64`) — lives in the consumer repo
+- [x] **Artifact Registry** Docker repo, created by the `pipeline` module
+- [x] Build + push by git SHA via `build.sh` — resolves the digest and pins it into the consumer's tfvars
+- [ ] CI image build/push automation (deferred — `build.sh` covers it today)
 
 ## Phase 2 — Storage
 
-- [x] **GCS raw bucket** (`pma-…-raw`) with 30-day retention lifecycle.
-- [x] **GCS curated bucket** (`pma-…-curated`) — versioning on, no TTL.
-- [x] Wire `DESTINATION__FILESYSTEM__BUCKET_URL` + raw bucket URL (auto-injected by
-      the `pipeline` module from `env_prefix`).
-- [ ] (Optional, defer until `latest` role ships) **Memorystore Redis** for hot
-      state + cross-run breaker persistence.
+- [x] **GCS raw bucket** (`<prefix>-<project>-raw`) with a lifecycle TTL (default 30 days) and uniform bucket-level access
+- [x] **GCS curated bucket** — object versioning on, no TTL
+- [x] Auto-inject `${env_prefix}_RAW_BUCKET_URL` + `DESTINATION__FILESYSTEM__BUCKET_URL` + `${env_prefix}_LOG_FORMAT` from the module-owned buckets
+- [ ] (Optional, defer until the `latest` role ships) **Memorystore Redis** for hot state + cross-run breaker persistence
 
 ## Phase 3 — Secrets & IAM
 
-- [x] Per-service **service accounts** (worker + scheduler), least privilege:
-      `objectAdmin` on the buckets, `run.invoker` for the scheduler.
-- [x] **Secret Manager** support in the module (`secret_env`); v1 needs no secrets
-      (Betclic is anonymous, GCS auth via the worker SA).
-- [x] No secrets in TF state / repo.
+- [x] Per-consumer **service accounts**: worker (runtime) + scheduler (invoker)
+- [x] **Secret Manager** support — per-job `secret_env` (name → secret id + version), grants deduped across jobs
+- [x] Secret grants ordered **before** the jobs (`depends_on`) — Cloud Run checks secret access at job create/update time
+- [x] Per-job `secret_env` **in production use** — winamax fetches through a residential proxy whose URL comes from Secret Manager
+- [x] No secret values in the repo, tfvars or TF state — secret *ids* only
 
-## Phase 4 — Cloud Run Job (ingest, whole-source loop) — v1
+## Phase 4 — Cloud Run Job (v1)
 
-- [x] `modules/worker-job` + `modules/pipeline` (batteries-included stack).
-- [x] Instantiate the **ingest** job (`PMA_ROLE=ingest`, raw, firefox, all comps).
-- [x] Manual run confirmed: 174 records / 26 competitions landed in the raw bucket.
+- [x] `modules/worker-job` — one Cloud Run Job + optional cron + invoker IAM (the primitive)
+- [x] `modules/pipeline` — batteries-included stack: APIs, storage, registry, identities, IAM, N jobs (the common entrypoint)
+- [x] **Four ingest Jobs live**, one per bookmaker (betclic, winamax, unibet, pmu), driven off `catalog_urls` in the consumer root
+- [x] Manual run confirmed — full harvest landed in the raw bucket
 
 ## Phase 5 — Fixed cadence (v1)
 
-- [x] **Cloud Scheduler** hourly cron (in `europe-west1` — Paris has no Scheduler;
-      `scheduler_region` knob) → invokes the ingest Run Job. **Live.**
-- [x] Interval as a per-service TF variable (`ingest_schedule`).
-- [~] Job retry policy set (`max_retries`); failure **alert** still TODO → Phase 7.
+- [x] **Cloud Scheduler** hourly cron → Run Jobs Admin API `jobs:run` (OAuth, not OIDC)
+- [x] `scheduler_region` knob — europe-west9 (Paris) is not a Scheduler location, so triggers live in europe-west1 and still call jobs in var.region
+- [x] Interval as a per-consumer variable (`ingest_schedule` / `transform_schedule`)
+- [x] Per-job retry policy (`max_retries`) and execution timeout (`timeout_seconds`)
+- [x] `schedulers_paused = false` on the consumer root — **triggers live**
 
 ## Phase 6 — Transform & latest roles
 
-- [~] **transform** job instantiated (`PMA_ROLE=transform`, raw → curated) — but its
-      trigger is **paused** (raw-only for now, user decision). Not yet run.
-- [ ] (Optional) **latest** job (`PMA_ROLE=latest` → Redis), gated on Phase 2 Redis.
-- [ ] Confirm idempotent replay: re-running transform over the same raw upserts
-      (no dup rows) — validates the Delta-merge contract end-to-end. **Pending the
-      first transform run.**
+- [~] **transform** Job instantiated (`PMA_ROLE=transform`, raw → curated) — trigger **paused**, never run end to end (user decision: raw-only for now)
+- [ ] Confirm **idempotent replay** — re-running transform over the same raw upserts with no duplicate rows (validates the Delta-merge contract)
+- [ ] (Optional) **latest** Job (`PMA_ROLE=latest` → Redis), gated on the Phase 2 Redis item
 
-> **v1 deployed.** Raw is hoarding hourly; transform is built but parked. Next:
-> a freshness/failure alert (Phase 7 slice), then per-competition cadence (Phase 8).
+## Phase 7 — Observability
 
-## Phase 7 — Observability & alerting
+### Native alerts — no metrics pipeline
 
-Split into two tiers by dependency (`modules/observability`): **native alerts**
-(Cloud Monitoring, no metrics pipeline) ship now and close the un-backfillable
-gap; the **Prometheus tier** (live dashboard + breaker/proxy alerts) waits on the
-metrics-backend decision.
-
-### Native alerts — no metrics pipeline (done)
-
-- [x] `modules/observability` — Cloud Monitoring alert policies over the native
-      `run.googleapis.com/job/completed_execution_count{result}` metric + an email
-      notification channel. Scoped to `${name_prefix}-*` jobs.
-- [x] **Job-failure** alert (`result="failed" > 0`) — closes the known gap.
-- [x] **Freshness / silent-stall** alert (absence of `result="succeeded"` for a
-      window, default 2h) — guards the gap that can't be backfilled, without needing
-      `ingestion_lag_seconds`.
-- [ ] **Wire it into the consumer root** (`proba-markets-analysis/infra/dev`):
-      `module "observability"` with `name_prefix = "pma"` + a notify email; apply.
+- [x] `modules/observability` — Cloud Monitoring alert policies over the native `run.googleapis.com/job/completed_execution_count{result}`, scoped to `${name_prefix}-*`
+- [x] **Job-failure** alert (`result="failed" > 0`, grouped by job name)
+- [x] **Freshness / silent-stall** alert (absence of `result="succeeded"`, default 2h window)
+- [x] Optional email notification channel (empty address = channel-less policies)
+- [x] **Wired into the consumer root** — `proba-markets-analysis/infra/dev` calls `module "observability"`; applied 2026-08-27 (2 policies + 1 email channel live in `proba-market-analysis`)
 
 ### Prometheus tier — Grafana Cloud via OTLP
 
-Backend decided: **Grafana Cloud**, fed by the SDK's **OTLP/HTTP push** (no
-PushGateway/scraper — short-lived jobs write to the OTLP gateway at exit). Grafana
-Cloud surfaces OTLP, not remote-write, for custom metrics.
+- [x] **SDK OTLP push** (`data-pipeline-core` `obs/otlp_push.py`) — worker writes its final series to the OTLP gateway at exit, no PushGateway
+- [x] **`pipeline` module wires it** — `metrics_otlp_url` / `_username` / `_token_secret` inject `${env_prefix}_METRICS_OTLP_*` and grant the worker SA `secretAccessor` on the token
+- [x] Grafana Cloud stack created; `metrics:write` access-policy token in Secret Manager (`grafana-otlp-token`); the three vars set on the consumer root
+- [x] Metrics **confirmed live** in Grafana Cloud (`worker_up`, `worker_runs_total{status}`, `records_written_total`, `bytes_written_total`)
+- [ ] `ingestion_lag_seconds` freshness + **circuit-breaker** + **proxy-ratio** alerts — candidate home: Grafana-managed alerts beside the dashboard
 
-- [x] **SDK OTLP push** (`data-pipeline-core` `obs/otlp_push.py`) — worker pushes
-      its final series to the OTLP gateway at exit; zero new deps.
-- [x] **`pipeline` module wires it** — `metrics_otlp_url` / `_username` /
-      `_token_secret` inject `${env_prefix}_METRICS_OTLP_*` env + a
-      Secret-Manager-backed token, and grant the worker SA `secretAccessor`.
-- [ ] **Out-of-band (you):** create the Grafana Cloud stack, generate the OTLP
-      access-policy token (`metrics:write`) → Secret Manager, set the three vars on
-      the consumer root, apply. Import `dashboards/technical.json` and set the
-      datasource. _(See `modules/observability/README.md`.)_
-- [ ] `ingestion_lag_seconds` **freshness** + **circuit-breaker** / **proxy-ratio**
-      alerts — build once series are flowing (they read the SDK custom series).
-      Candidate home: a Grafana-managed alert or a Prometheus rule beside the
-      dashboard.
+### Technical dashboard
 
-### Technical dashboard (Grafana dashboard-as-JSON) — the "obs #1" deliverable (done)
+- [x] `dashboards/technical.json` — 7 panels over the frozen SDK series (workers executed, errors, error ratio, runs/errors per source, records, bytes)
+- [x] Datasource as a **template variable** so the JSON imports against any Prometheus backend
+- [x] Counter panels use `sum_over_time()` — push-once counters are sparse and reset per run, so `increase()`/`rate()` render empty
+- [x] **Imported in Grafana** against the Grafana Cloud datasource, reading real series
+- [ ] (Deferred) total **GCS bucket footprint** panel — a bucket property, not a per-run metric; needs a size probe (scheduled job → gauge)
 
-- [x] `modules/observability/dashboards/technical.json` — a small panel set over
-      the frozen series (runs, in-flight best-effort, errors, error-ratio, records &
-      bytes written), datasource as a **template variable** so it imports against any
-      Prometheus backend. Per day/week/month via the range picker.
-- [x] In-flight caveat noted on the panel (push-at-exit jobs → last-push count, not
-      a true live gauge).
-- [ ] **Deferred follow-up:** total **GCS bucket footprint** (GB in raw/curated) is
-      a property of the bucket, not a per-run metric — add a size probe/exporter
-      (scheduled job → gauge) if a true footprint panel is wanted later.
+## Hardening — review 2026-08-27
 
-## Phase 8 — Per-competition volatility cadence (v2)
+Rationale for each item in [`DEVELOPMENT.md`](DEVELOPMENT.md) "Hardening goals".
 
-> Prereqs (do first): (a) the **consumer/SDK** can target a **single competition**
-> per run (granularity change — the v1 loop becomes per-unit), and (b) the SDK
-> emits the **scheduling hint** (`next_run_seconds`). Build the SDK seam before the
-> infra below.
-- [ ] **Cloud Tasks** queue; tasks trigger a Job execution **per competition** via
-      the Run Jobs API with a **runtime override** carrying the competition id.
-- [ ] Worker computes the distance/volatility (consumer logic) → next delay; the
-      SDK hook enqueues the next task for that competition with
-      `schedule_time = now + clamp(delay)` — one self-paced chain per competition.
-- [ ] **Clamp** `[min, max]` enforced infra-side (tie to IP-guard / budget floor).
-- [ ] Keep a **slow "floor" / catalog-refresh** run that re-seeds a dead chain and
-      seeds chains for newly-appeared competitions.
-- [ ] Grant the worker SA `cloudtasks.enqueuer` + `run.jobs run` for self-enqueue.
-- [ ] Retire (or down-rate) the Phase 5 whole-source cron once per-competition
-      chains cover all units.
+- [ ] **H1** — `terraform test` suite against `examples/minimal` with provider mocks (`command = plan`, no creds): no-schedule ⇒ no scheduler/invoker; two jobs sharing a secret ⇒ one IAM member; `injected_env` carries `${env_prefix}_RAW_BUCKET_URL`; empty `metrics_otlp_url` ⇒ no OTLP env and no token grant
+- [ ] **H2** — narrow the raw-bucket grant from `objectAdmin` to `objectCreator` + `objectViewer` (the worker only writes raw; the hoard must not be deletable by the runtime SA); keep `objectAdmin` on curated for the Delta merge
+- [ ] **H3** — add a `watched_jobs` input to `observability` and `group_by_fields = ["resource.label.job_name"]` on the freshness alert, so one healthy job stops masking three dead ones (fleet-wide reduce exists only to keep the paused transform quiet)
+- [ ] **H4** — `validation` blocks: `name_prefix` ≤ 20 chars (SA `account_id` limit is 30 and `-scheduler` costs 10), `image` matches `@sha256:`, `scheduler_service_account_email` required when `schedule != null`
+- [ ] **H5** — a `labels` input merged onto jobs, buckets and the registry, so the billing export is sliceable per consumer and per job (cost is DESIGN §5's central argument)
+- [ ] **H6** — cut **`v0.1.0`** (annotated tag) and document in the README that a local-path `source` is co-dev only; consumers pin `?ref=`
+- [ ] **H7** — add `depends_on = [google_project_service.apis]` to the two `google_service_account` resources, matching the buckets and the registry (first-apply race on a fresh project)
+- [ ] **H8** — drop the stale "greenfield, nothing is deployed yet" status block from `DESIGN.md`; status lives in `DEVELOPMENT.md`
 
----
+## Phase 8 — Per-unit volatility cadence (v2)
 
-## Decision log
+Prereqs in `data-pipeline-core` (build these first): a **single-work-unit run**
+(config-selected unit instead of the whole-source loop) and the **scheduling hint**
+(`next_run_seconds`).
 
-What's **GCP-managed**, what's **declared here**, what's **deferred**.
-
-| Item | Decision | Rationale |
-|---|---|---|
-| Substrate | **Cloud Run Jobs** (scale-to-zero), not a warm Service | Low-volume sporadic sub-second tasks; no idle cost, no serve layer, cold start irrelevant at minute/hour cadences. Tripwire: sub-second/real-time → warm Service (DESIGN §5). |
-| Run cadence | Infra (one-shot + external scheduler) | Worker is stateless one-shot; scheduling is ops, not library/business. |
-| v1 granularity | One Job loops **all** competitions on one cron | Simplest launch; uses the existing whole-source run. Start hoarding raw immediately. |
-| v2 granularity | One self-paced chain **per competition** via Cloud Tasks | Per-competition volatility needs independent cadences; a single loop can't vary per unit. |
-| Fixed cadence transport | Cloud Scheduler → Run Job | Simplest correct v1; cron is for fixed intervals. |
-| Dynamic cadence transport | Cloud Tasks (`schedule_time`) → Run Jobs API + floor run | Scheduler can't self-pace; Tasks does one-off future runs. Floor re-seeds a broken chain. |
-| Service → infra config | Single clamped scalar/enum (`next_run_seconds`) | Narrow waist; service requests, infra enforces `[min,max]`. No ops knobs cross the line. |
-| Scheduling-hint interface | SDK (deferred), like Pub/Sub | Shared shape both consumer (emits) and infra (consumes) depend on. |
-| Raw retention | Infra (GCS lifecycle TTL) | Bucket-level policy, not app logic. |
-| Transform frequency | Infra (own schedule) | Same category as ingest cadence. |
-| Secrets | Secret Manager → env | Never in repo/state. |
-| Reusability | `modules/worker-job`, per-service instances | Generic + first consumer (proba-markets-analysis), mirrors the SDK model. |
-| IaC tool | Terraform (assumed; confirm Phase 0) | Mainstream GCP IaC; revisit if a reason appears. |
-| Build order | v1: Phases 0–6 → Phase 7 (obs) → Phase 8 (v2) | Launch + hoard first; harden; then per-competition volatility. |
-| Alerts before a metrics pipeline | Native Cloud Monitoring (failure + freshness) ships first, no Prometheus | Cloud Run Jobs emit `completed_execution_count{result}` for free; the un-backfillable gap is closable today, before the metrics-backend decision. |
-| Technical dashboard datasource | Template variable, not a hard-pinned source | Backend is undecided (DESIGN §8); a datasource var keeps the JSON importable against Grafana Cloud / GMP / self-hosted alike. |
-| Metrics backend | **Grafana Cloud** via SDK **OTLP/HTTP push** | Short-lived jobs write to Grafana Cloud's OTLP gateway at exit — no always-on PushGateway + scraper. Grafana Cloud surfaces OTLP (not remote-write) for custom metrics; OTLP-JSON is also zero-dep in the SDK. Token via Secret Manager. |
+- [ ] **Cloud Tasks** queue; tasks trigger a Job execution **per work unit** via the Run Jobs API with a runtime override carrying the unit id
+- [ ] Worker computes its next delay (consumer logic) → the SDK hook enqueues the next task with `schedule_time = now + clamp(delay)` — one self-paced chain per unit
+- [ ] **Clamp** `[min, max]` enforced infra-side (tied to the IP-guard / budget floor)
+- [ ] Keep a slow **floor / catalog-refresh** run that re-seeds a dead chain and seeds chains for newly-appeared units
+- [ ] Grant the worker SA `cloudtasks.enqueuer` + `run.jobs run` for self-enqueue
+- [ ] Retire (or down-rate) the Phase 5 whole-source cron once per-unit chains cover all units
