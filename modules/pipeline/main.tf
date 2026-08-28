@@ -17,6 +17,11 @@ locals {
   raw_bucket_url     = "gs://${google_storage_bucket.raw.name}"
   curated_bucket_url = "gs://${google_storage_bucket.curated.name}"
 
+  # OTLP is one feature with three inputs, and variables.tf validates them as
+  # all-or-nothing. That is what makes the url alone a safe switch for the token
+  # too: it can no longer be set without one, nor one without it.
+  otlp_enabled = var.metrics_otlp_url != ""
+
   # SDK-standard env the module can fill because it owns the buckets. The consumer
   # only supplies business env (role, catalog url, dataset, …) per job.
   injected_env = merge(
@@ -25,19 +30,19 @@ locals {
       "${var.env_prefix}_RAW_BUCKET_URL"    = local.raw_bucket_url
       "DESTINATION__FILESYSTEM__BUCKET_URL" = local.curated_bucket_url
     },
-    var.metrics_otlp_url == "" ? {} : {
+    local.otlp_enabled ? {
       "${var.env_prefix}_METRICS_OTLP_URL"      = var.metrics_otlp_url
       "${var.env_prefix}_METRICS_OTLP_USERNAME" = var.metrics_otlp_username
-    },
+    } : {},
   )
 
   # The OTLP token is a secret → injected from Secret Manager, not env.
-  injected_secret_env = var.metrics_otlp_token_secret == "" ? {} : {
+  injected_secret_env = local.otlp_enabled ? {
     "${var.env_prefix}_METRICS_OTLP_PASSWORD" = {
       secret  = var.metrics_otlp_token_secret
       version = "latest"
     }
-  }
+  } : {}
 }
 
 resource "google_project_service" "apis" {
@@ -114,9 +119,10 @@ resource "google_storage_bucket_iam_member" "worker_curated" {
   member = "serviceAccount:${google_service_account.worker.email}"
 }
 
-# Let the worker read the OTLP token secret (only when one is wired).
+# Let the worker read the OTLP token secret (only while OTLP is on — a grant that
+# outlives the feature it serves is standing privilege nothing is using).
 resource "google_secret_manager_secret_iam_member" "worker_metrics_token" {
-  count = var.metrics_otlp_token_secret == "" ? 0 : 1
+  count = local.otlp_enabled ? 1 : 0
 
   project   = var.project_id
   secret_id = var.metrics_otlp_token_secret

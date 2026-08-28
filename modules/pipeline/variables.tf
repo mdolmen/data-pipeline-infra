@@ -34,21 +34,45 @@ variable "raw_retention_days" {
 # Set the url to turn on OTLP push on every job. The SDK writes its final series
 # to this endpoint at exit (preferred over a PushGateway for short-lived jobs).
 # Injected as ${env_prefix}_METRICS_OTLP_{URL,USERNAME,PASSWORD}.
+#
+# The three are one feature and are validated as all-or-nothing, because each
+# half-configured state fails quietly:
+#   url without credentials — the SDK sends no Authorization header, the gateway
+#     rejects the push, and push failures are swallowed by design (observability
+#     must not break ingestion). It surfaces as a permanently empty dashboard on
+#     a worker that reports success, which is the worst way to lose metrics.
+#   credentials without a url — the SDK never takes the OTLP branch at all, so
+#     the injected password is dead env and the secretAccessor grant is standing
+#     privilege on a feature that is switched off.
+# An unauthenticated OTLP collector is therefore not supported: from the module's
+# inputs it is indistinguishable from a forgotten token. Relax this if a consumer
+# ever actually needs one.
 
 variable "metrics_otlp_url" {
   description = "OTLP/HTTP metrics endpoint (e.g. https://otlp-gateway-<zone>.grafana.net/otlp/v1/metrics). Empty = OTLP off (jobs fall back to metrics_push_gateway / no push)."
   type        = string
   default     = ""
+
+  validation {
+    condition = alltrue([
+      for value in [
+        var.metrics_otlp_url,
+        var.metrics_otlp_username,
+        var.metrics_otlp_token_secret,
+      ] : (value == "") == (var.metrics_otlp_url == "")
+    ])
+    error_message = "OTLP is all-or-nothing: set metrics_otlp_url, metrics_otlp_username and metrics_otlp_token_secret together, or leave all three empty."
+  }
 }
 
 variable "metrics_otlp_username" {
-  description = "Basic-auth username for OTLP (Grafana Cloud: the numeric instance id). Non-secret."
+  description = "Basic-auth username for OTLP (Grafana Cloud: the numeric instance id). Non-secret. Required when metrics_otlp_url is set."
   type        = string
   default     = ""
 }
 
 variable "metrics_otlp_token_secret" {
-  description = "Secret Manager secret id holding the OTLP API token (the basic-auth password). Empty = no token wired. Create the secret out of band; never put the token in tfvars/state."
+  description = "Secret Manager secret id holding the OTLP API token (the basic-auth password). Required when metrics_otlp_url is set. Create the secret out of band; never put the token in tfvars/state."
   type        = string
   default     = ""
 }
