@@ -4,7 +4,7 @@
 # another project"). Values are placeholders; this is never applied.
 
 terraform {
-  required_version = ">= 1.5"
+  required_version = ">= 1.9"
   required_providers {
     google = {
       source  = "hashicorp/google"
