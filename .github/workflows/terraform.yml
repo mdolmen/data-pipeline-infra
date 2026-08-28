@@ -33,3 +33,20 @@ jobs:
       - name: validate
         working-directory: examples/minimal
         run: terraform validate
+
+      # Logic tests: mocked provider, `command = plan` — no credentials, no cloud
+      # calls, seconds to run. Per module rather than against the fixture, because
+      # assertions can only reach resources in the root module of the
+      # configuration under test; from examples/minimal everything worth asserting
+      # sits inside module.pipeline and is unreachable.
+      - name: test (pipeline)
+        working-directory: modules/pipeline
+        run: |
+          terraform init -backend=false
+          terraform test
+
+      - name: test (worker-job)
+        working-directory: modules/worker-job
+        run: |
+          terraform init -backend=false
+          terraform test
