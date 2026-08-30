@@ -174,6 +174,14 @@ enforced by the code. Tasks are in `TODO.md` under "Hardening"; rationale here.
   but nothing enforces `@sha256:`. `scheduler_service_account_email` is
   optional-but-required-when-`schedule`-is-set, enforced only by a comment. Four
   cheap blocks that move failures from apply-time to plan-time.
+
+  Built with one guard beyond the brief: `name_prefix` is also checked for
+  *shape*, not just length. Service account ids and bucket names are both
+  lowercase-only, and the neighbouring `env_prefix` is upper-case by convention
+  (`PMA`, `AIRBNB`) — so passing that value to `name_prefix` is an easy mistake
+  that fails exactly like the length case, opaquely and mid-apply. The digest
+  check lives on both `pipeline` and `worker-job`, since each is independently
+  consumable and should guard its own inputs.
 - **H5 — No resource labels.** DESIGN §5 makes cost the central argument for Jobs,
   then ships nothing to attribute cost. A `labels` input merged onto jobs, buckets
   and the registry makes the billing export sliceable per consumer and per job.
