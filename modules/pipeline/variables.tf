@@ -10,13 +10,36 @@ variable "region" {
 }
 
 variable "name_prefix" {
-  description = "Prefix for resource names (buckets, SAs, jobs). Often the consumer slug."
+  description = "Prefix for resource names (buckets, SAs, jobs). Often the consumer slug. Max 20 chars, and valid as the leading part of a service account id."
   type        = string
+
+  # Service account ids cap at 30 chars and the module derives
+  # "${name_prefix}-scheduler", so anything over 20 fails at apply — after the
+  # buckets and registry already exist — with an error that names the id, not this.
+  validation {
+    condition     = length(var.name_prefix) <= 20
+    error_message = "name_prefix must be at most 20 characters: the module derives \"${var.name_prefix}-scheduler\" and service account ids cap at 30."
+  }
+
+  # Same failure mode, different door: service account ids and bucket names are
+  # both lowercase-only, and env_prefix next door is upper-case by convention, so
+  # passing that value here is an easy mistake to make.
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9]*(-[a-z0-9]+)*$", var.name_prefix))
+    error_message = "name_prefix must be lowercase alphanumeric, starting with a letter, with single internal hyphens — it becomes part of bucket names and service account ids."
+  }
 }
 
 variable "image" {
   description = "Worker image pinned by digest (…@sha256:…). Built and pushed out of band."
   type        = string
+
+  # The docs promise a digest and build.sh resolves one; enforcing it here is what
+  # keeps a job spec reproducible — a tag silently re-points under a running job.
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.image))
+    error_message = "image must be pinned by digest, ending in @sha256:<64 hex chars>."
+  }
 }
 
 variable "env_prefix" {

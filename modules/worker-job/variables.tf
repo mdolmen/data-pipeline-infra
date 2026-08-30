@@ -16,6 +16,13 @@ variable "region" {
 variable "image" {
   description = "Fully-qualified worker image, pinned by digest (…@sha256:…)."
   type        = string
+
+  # The docs promise a digest and build.sh resolves one; enforcing it here is what
+  # keeps a job spec reproducible — a tag silently re-points under a running job.
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.image))
+    error_message = "image must be pinned by digest, ending in @sha256:<64 hex chars>."
+  }
 }
 
 variable "service_account_email" {
@@ -86,6 +93,13 @@ variable "scheduler_service_account_email" {
   description = "SA the scheduler authenticates as to invoke the job (needs run.invoker). Required when schedule is set."
   type        = string
   default     = null
+
+  # Without it the scheduler resource still plans, then fails at apply with an
+  # IAM error that doesn't mention this input.
+  validation {
+    condition     = var.schedule == null || (var.scheduler_service_account_email != null && var.scheduler_service_account_email != "")
+    error_message = "scheduler_service_account_email is required when schedule is set — the trigger needs an identity with run.invoker."
+  }
 }
 
 variable "paused" {
