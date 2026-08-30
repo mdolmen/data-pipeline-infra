@@ -8,8 +8,8 @@ consuming service). It is deliberately **consumer-agnostic**: a new SDK-based
 service should be deployable by instantiating a module, with no changes to the
 core design.
 
-> Status: greenfield. Nothing is deployed yet. This document is the target
-> architecture; `TODO.md` is the build order.
+> This document is the target architecture. Build status lives in
+> [`DEVELOPMENT.md`](DEVELOPMENT.md); the task list is [`TODO.md`](TODO.md).
 
 ---
 
