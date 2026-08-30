@@ -50,3 +50,9 @@ jobs:
         run: |
           terraform init -backend=false
           terraform test
+
+      - name: test (observability)
+        working-directory: modules/observability
+        run: |
+          terraform init -backend=false
+          terraform test

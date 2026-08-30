@@ -4,8 +4,21 @@ variable "project_id" {
 }
 
 variable "name_prefix" {
-  description = "Job-name prefix to scope the alerts (matches the pipeline module's name_prefix, e.g. \"pma\"). Alerts watch every Cloud Run Job whose name starts with it."
+  description = "Job-name prefix to scope the alerts (matches the pipeline module's name_prefix). Alerts watch every Cloud Run Job whose name starts with it."
   type        = string
+}
+
+variable "watched_jobs" {
+  description = "Full Cloud Run Job names that must keep succeeding, e.g. values(module.pipeline.jobs). Empty = every job matching name_prefix. Scopes the freshness alert only: a paused job stops succeeding on purpose and would alert forever, whereas a paused job never fails, so the failure alert stays fleet-wide."
+  type        = list(string)
+  default     = []
+
+  # A typo'd name matches no series, and an absence condition over no series never
+  # fires — the alert would silently watch nothing.
+  validation {
+    condition     = alltrue([for job in var.watched_jobs : startswith(job, "${var.name_prefix}-")])
+    error_message = "Every watched_jobs entry must be a full job name starting with \"${var.name_prefix}-\"."
+  }
 }
 
 variable "notification_email" {
@@ -15,7 +28,7 @@ variable "notification_email" {
 }
 
 variable "freshness_window_seconds" {
-  description = "How long with no *successful* execution before the freshness/stall alert fires. Default 2h — a gap in the hoard is the one thing that can't be backfilled, so alert well before the daily loss matters."
+  description = "How long with no *successful* execution before the freshness/stall alert fires. Default 2h — a gap in raw is the one thing that can't be backfilled, so alert well before the loss matters."
   type        = number
   default     = 7200
 }
