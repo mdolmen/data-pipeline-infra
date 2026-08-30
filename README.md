@@ -3,8 +3,9 @@
 A **Terraform module library** for deploying `data-pipeline-core` workers to GCP —
 the deploy-side analogue of the SDK. It owns the *generic* substrate (Cloud Run
 Jobs, storage, registry, identities, scheduling); it has **no consumer specifics**.
-See [DESIGN.md](DESIGN.md) for the architecture and [TODO.md](TODO.md) for the
-build plan.
+See [DESIGN.md](DESIGN.md) for the architecture, [DEVELOPMENT.md](DEVELOPMENT.md)
+for how the build is run (strategy, status, decision log), and [TODO.md](TODO.md)
+for the task list.
 
 Each consuming project keeps its own thin Terraform root **in its own repo** and
 imports these modules — mirroring how each consumer imports the Python SDK. (The
