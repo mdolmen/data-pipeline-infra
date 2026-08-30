@@ -99,12 +99,16 @@ resource "google_service_account" "worker" {
   project      = var.project_id
   account_id   = "${var.name_prefix}-worker"
   display_name = "${var.name_prefix} worker runtime"
+
+  depends_on = [google_project_service.apis]
 }
 
 resource "google_service_account" "scheduler" {
   project      = var.project_id
   account_id   = "${var.name_prefix}-scheduler"
   display_name = "${var.name_prefix} Cloud Scheduler → Run Job invoker"
+
+  depends_on = [google_project_service.apis]
 }
 
 # Append-only, deliberately not objectAdmin: raw can't be rebuilt, so the runtime
