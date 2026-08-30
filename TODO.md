@@ -98,8 +98,8 @@ Rationale for each item in [`DEVELOPMENT.md`](DEVELOPMENT.md) "Hardening goals".
 - [x] **H4** — `validation` blocks: `name_prefix` ≤ 20 chars (SA `account_id` limit is 30 and `-scheduler` costs 10), `image` matches `@sha256:`, `scheduler_service_account_email` required when `schedule != null`
 - [ ] **H5** — a `labels` input merged onto jobs, buckets and the registry, so the billing export is sliceable per consumer and per job (cost is DESIGN §5's central argument)
 - [ ] **H6** — cut **`v0.1.0`** (annotated tag) and document in the README that a local-path `source` is co-dev only; consumers pin `?ref=`
-- [ ] **H7** — add `depends_on = [google_project_service.apis]` to the two `google_service_account` resources, matching the buckets and the registry (first-apply race on a fresh project)
-- [ ] **H8** — drop the stale "greenfield, nothing is deployed yet" status block from `DESIGN.md`; status lives in `DEVELOPMENT.md`
+- [x] **H7** — add `depends_on = [google_project_service.apis]` to the two `google_service_account` resources, matching the buckets and the registry (first-apply race on a fresh project)
+- [x] **H8** — drop the stale "greenfield, nothing is deployed yet" status block from `DESIGN.md`; status lives in `DEVELOPMENT.md`
 
 ## Phase 8 — Per-unit volatility cadence (v2)
 
