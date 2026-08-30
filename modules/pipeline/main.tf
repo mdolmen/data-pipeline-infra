@@ -107,12 +107,20 @@ resource "google_service_account" "scheduler" {
   display_name = "${var.name_prefix} Cloud Scheduler → Run Job invoker"
 }
 
+# Append-only, deliberately not objectAdmin: raw can't be rebuilt, so the runtime
+# identity must not be able to erase it. Safe because the SDK's landing sink names
+# every object uniquely and never replaces one, and the transform role only lists
+# and reads. The lifecycle TTL is unaffected — GCS enforces it, not this SA.
 resource "google_storage_bucket_iam_member" "worker_raw" {
+  for_each = toset(["roles/storage.objectCreator", "roles/storage.objectViewer"])
+
   bucket = google_storage_bucket.raw.name
-  role   = "roles/storage.objectAdmin"
+  role   = each.value
   member = "serviceAccount:${google_service_account.worker.email}"
 }
 
+# Curated keeps objectAdmin: the Delta merge rewrites and deletes files there. Safe
+# because curated is recoverable — it can be rebuilt by replaying raw.
 resource "google_storage_bucket_iam_member" "worker_curated" {
   bucket = google_storage_bucket.curated.name
   role   = "roles/storage.objectAdmin"
