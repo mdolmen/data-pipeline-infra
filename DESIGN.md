@@ -82,8 +82,8 @@ Cloud Run Job ──reads──► Secret Manager (per-service secrets)
    │         • Cloud Scheduler (fixed cron, whole-source loop)        [v1]
    │         • Cloud Tasks (per-unit, schedule_time, runtime override) [v2]
    │
-   └── service account (least privilege: object admin on its buckets,
-       secretAccessor on its secrets, run.invoker / run.jobs run, tasks enqueuer)
+   └── service account (least privilege: create+read on raw, object admin on
+       curated, secretAccessor on its secrets, run.invoker / run.jobs run)
 ```
 
 What's **managed by GCP** (free): container execution, retries/timeouts, cron
@@ -174,10 +174,10 @@ just the degenerate "constant delay, all units" case of the v2 mechanism.
 
 - **State backend.** Terraform state in a dedicated GCS bucket (versioned,
   locked). No local state.
-- **Per-service instantiation.** A reusable module (`modules/worker-job`)
-  parameterized per service (image, role, env, secrets, schedule); each consumer
-  is one instantiation. The module is the only place the design lives; services
-  are data, not new design.
+- **Per-service instantiation.** `modules/worker-job` is the primitive (one Job,
+  optional cron, IAM) and `modules/pipeline` composes it into the whole stack;
+  each consumer is one instantiation of the latter. The modules are the only place
+  the design lives; services are data, not new design.
 - **Config delivery.** Env vars on the Run Job; secrets via Secret Manager → env.
   The SDK reads its config from the environment, so infra's job is to populate it,
   not to know its meaning. Env-var *names* are a per-service prefix.
@@ -198,7 +198,7 @@ just the degenerate "constant delay, all units" case of the v2 mechanism.
 
 ## 8. Open decisions
 
-- IaC tool: **Terraform** (assumed) vs Pulumi vs `gcloud` scripts. Pick in Phase 0.
+- ~~IaC tool~~ **Decided: Terraform**, pinned at 1.9.5. Pulumi and `gcloud` scripts were the alternatives.
 - Redis: Memorystore vs skip until a service actually deploys the `latest` role.
 - ~~Metrics transport~~ **Decided: Grafana Cloud via OTLP/HTTP push.**
   Short-lived jobs write their final series to Grafana Cloud's OTLP gateway at exit
