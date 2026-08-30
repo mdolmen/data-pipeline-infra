@@ -65,7 +65,7 @@ resource "google_monitoring_alert_policy" "job_failed" {
   notification_channels = google_monitoring_notification_channel.email[*].id
 
   documentation {
-    content   = "One or more ${var.name_prefix} Cloud Run Job executions failed. Check the job logs; a run is idempotent so a manual re-run is safe, but investigate before the next scheduled tick."
+    content   = "A ${var.name_prefix} Cloud Run Job execution failed. Check the job logs; a run is idempotent so a manual re-run is safe, but investigate before the next scheduled tick."
     mime_type = "text/markdown"
   }
 }

@@ -1,6 +1,5 @@
-# A single SDK worker, deployed as a one-shot Cloud Run Job, optionally triggered
-# on a fixed cron. The job runs `python -m workers.main`; behaviour is selected
-# entirely by env (PMA_ROLE etc.) — see DESIGN.md §2.
+# A single SDK worker as a one-shot Cloud Run Job, optionally triggered on a fixed
+# cron. Behaviour is selected entirely by env — see DESIGN.md §2.
 
 resource "google_cloud_run_v2_job" "this" {
   name                = var.name

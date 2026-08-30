@@ -1,5 +1,5 @@
 variable "name" {
-  description = "Cloud Run Job name (e.g. pma-ingest)."
+  description = "Cloud Run Job name."
   type        = string
 }
 
@@ -24,7 +24,7 @@ variable "service_account_email" {
 }
 
 variable "env" {
-  description = "Plain environment variables for the worker (e.g. PMA_ROLE)."
+  description = "Plain environment variables for the worker."
   type        = map(string)
   default     = {}
 }

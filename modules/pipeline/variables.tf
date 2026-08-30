@@ -20,12 +20,12 @@ variable "image" {
 }
 
 variable "env_prefix" {
-  description = "The consumer's env-var prefix (e.g. PMA, AIRBNB). The module auto-wires the SDK-standard env (RAW_BUCKET_URL, LOG_FORMAT) under this prefix; jobs supply the rest."
+  description = "The consumer's env-var prefix. The module auto-wires the SDK-standard env (RAW_BUCKET_URL, LOG_FORMAT) under this prefix; jobs supply the rest."
   type        = string
 }
 
 variable "raw_retention_days" {
-  description = "Lifecycle TTL on the raw (bronze) bucket. Keep generous — the hoard can't be backfilled."
+  description = "Lifecycle TTL on the raw (bronze) bucket. Keep generous — raw can't be backfilled."
   type        = number
   default     = 30
 }

@@ -1,10 +1,9 @@
-# Secret-grant deduplication. Two jobs may reference the same secret (four ingest
-# jobs sharing one residential-proxy credential is the real case), and the module
-# must grant the worker SA access to it exactly once. The dedup rests entirely on
-# the `toset()` in local.job_secret_ids: key the for_each by job instead of by
-# secret and Terraform either errors on duplicate keys or writes two bindings for
-# the same (secret, member, role) triple. `validate` sees a well-typed
-# comprehension either way.
+# Secret-grant deduplication. Several jobs may reference the same secret, and the
+# module must grant the worker SA access to it exactly once. The dedup rests
+# entirely on the `toset()` in local.job_secret_ids: key the for_each by job
+# instead of by secret and Terraform either errors on duplicate keys or writes two
+# bindings for the same triple. `validate` sees a well-typed comprehension either
+# way.
 
 mock_provider "google" {}
 
