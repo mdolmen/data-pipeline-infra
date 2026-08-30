@@ -47,6 +47,20 @@ variable "env_prefix" {
   type        = string
 }
 
+variable "labels" {
+  description = "Labels applied to the billable resources (jobs, buckets, registry) for cost attribution. The module merges its own on top: `job` per Job, `tier` per bucket."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for key, value in var.labels :
+      can(regex("^[a-z][a-z0-9_-]{0,62}$", key)) && can(regex("^[a-z0-9_-]{0,63}$", value))
+    ])
+    error_message = "Label keys must start with a lowercase letter, and keys and values may hold only lowercase letters, digits, - and _, up to 63 characters."
+  }
+}
+
 variable "raw_retention_days" {
   description = "Lifecycle TTL on the raw (bronze) bucket. Keep generous — raw can't be backfilled."
   type        = number

@@ -45,6 +45,20 @@ variable "secret_env" {
   default = {}
 }
 
+variable "labels" {
+  description = "Labels applied to the Cloud Run Job, for cost attribution in the billing export."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for key, value in var.labels :
+      can(regex("^[a-z][a-z0-9_-]{0,62}$", key)) && can(regex("^[a-z0-9_-]{0,63}$", value))
+    ])
+    error_message = "Label keys must start with a lowercase letter, and keys and values may hold only lowercase letters, digits, - and _, up to 63 characters."
+  }
+}
+
 variable "cpu" {
   description = "vCPU limit per task."
   type        = string

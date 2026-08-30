@@ -6,6 +6,7 @@ resource "google_cloud_run_v2_job" "this" {
   location            = var.region
   project             = var.project
   deletion_protection = false
+  labels              = var.labels
 
   template {
     template {

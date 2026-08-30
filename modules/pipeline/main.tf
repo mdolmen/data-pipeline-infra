@@ -60,6 +60,7 @@ resource "google_storage_bucket" "raw" {
   location                    = var.region
   uniform_bucket_level_access = true
   force_destroy               = false
+  labels                      = merge(var.labels, { tier = "raw" })
 
   lifecycle_rule {
     condition { age = var.raw_retention_days }
@@ -75,6 +76,7 @@ resource "google_storage_bucket" "curated" {
   location                    = var.region
   uniform_bucket_level_access = true
   force_destroy               = false
+  labels                      = merge(var.labels, { tier = "curated" })
 
   versioning { enabled = true }
 
@@ -89,6 +91,7 @@ resource "google_artifact_registry_repository" "workers" {
   repository_id = "${var.name_prefix}-workers"
   format        = "DOCKER"
   description   = "SDK worker images"
+  labels        = var.labels
 
   depends_on = [google_project_service.apis]
 }
@@ -178,6 +181,10 @@ module "jobs" {
 
   env        = merge(local.injected_env, each.value.env)
   secret_env = merge(local.injected_secret_env, each.value.secret_env)
+
+  # The job key is the useful billing dimension and the module already has it, so
+  # the consumer never restates it.
+  labels = merge(var.labels, { job = each.key })
 
   cpu             = each.value.cpu
   memory          = each.value.memory

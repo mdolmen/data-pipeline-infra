@@ -57,3 +57,26 @@ run "tagged_image_is_rejected" {
 
   expect_failures = [var.image]
 }
+
+run "labels_reach_the_job" {
+  command = plan
+
+  variables {
+    labels = { consumer = "example", job = "ingest" }
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_job.this.labels == var.labels
+    error_message = "Labels must reach the Cloud Run Job — this is where the pipeline module's per-job billing dimension lands."
+  }
+}
+
+run "invalid_label_key_is_rejected" {
+  command = plan
+
+  variables {
+    labels = { "Consumer" = "example" }
+  }
+
+  expect_failures = [var.labels]
+}
