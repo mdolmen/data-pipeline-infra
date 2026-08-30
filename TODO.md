@@ -96,8 +96,8 @@ Rationale for each item in [`DEVELOPMENT.md`](DEVELOPMENT.md) "Hardening goals".
 - [x] **H2** — raw-bucket grant narrowed from `objectAdmin` to `objectCreator` + `objectViewer`; curated keeps `objectAdmin` for dlt's Delta merge. Safe because the SDK's landing sink names every object `{timestamp}-{uuid}.jsonl` and so never replaces one, and the transform role only globs + reads — the contract needs no delete on raw. The lifecycle TTL is unaffected (GCS enforces it, not the SA). Covered by `tests/bucket_grants.tftest.hcl` (3 runs, mutation-checked); the identity run uses `command = apply` against the mock because the SA email is unknown at plan time and `override_during` doesn't exist in the pinned 1.9.5
 - [x] **H3** — add a `watched_jobs` input to `observability` and `group_by_fields = ["resource.label.job_name"]` on the freshness alert, so one healthy job stops masking three dead ones (fleet-wide reduce exists only to keep the paused transform quiet)
 - [x] **H4** — `validation` blocks: `name_prefix` ≤ 20 chars (SA `account_id` limit is 30 and `-scheduler` costs 10), `image` matches `@sha256:`, `scheduler_service_account_email` required when `schedule != null`
-- [ ] **H5** — a `labels` input merged onto jobs, buckets and the registry, so the billing export is sliceable per consumer and per job (cost is DESIGN §5's central argument)
-- [ ] **H6** — cut **`v0.1.0`** (annotated tag) and document in the README that a local-path `source` is co-dev only; consumers pin `?ref=`
+- [x] **H5** — a `labels` input merged onto jobs, buckets and the registry, so the billing export is sliceable per consumer and per job (cost is DESIGN §5's central argument)
+- [x] **H6** — cut **`v0.1.0`** (annotated tag) and document in the README that a local-path `source` is co-dev only; consumers pin `?ref=`
 - [x] **H7** — add `depends_on = [google_project_service.apis]` to the two `google_service_account` resources, matching the buckets and the registry (first-apply race on a fresh project)
 - [x] **H8** — drop the stale "greenfield, nothing is deployed yet" status block from `DESIGN.md`; status lives in `DEVELOPMENT.md`
 

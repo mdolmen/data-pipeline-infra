@@ -50,9 +50,15 @@ Minimal config = `project_id`, `name_prefix`, `image`, `env_prefix`, and the
 (Terraform can't abstract those into a module) and a `terraform.tfvars`. Use
 `proba-markets-analysis/infra/dev/` as the full worked example.
 
-**Versioning.** Pin `?ref=` to a tag (`git tag v0.1.0`). During co-development,
-point `source` at a local path (`../../../data-pipeline-infra/modules/pipeline`),
-the same editable trick as the SDK — swap to a pinned ref once the API stabilises.
+**Versioning.** Consumers pin `?ref=` to a tag. `v0.1.0` is the first; the API is
+stable enough to depend on, and `0.x` means breaking changes still arrive without
+a major bump — read the tag annotation before moving a pin.
+
+A local path (`../../../data-pipeline-infra/modules/pipeline`) is **co-development
+only**: it means edits here land in the consumer's next `apply` with no version in
+between, which is what you want while the two repos are shaped together and not
+what you want anywhere else. It also can't be reproduced by anyone who doesn't
+have both repos side by side, so it never survives into a second consumer.
 
 ## What the consumer provides vs what the module wires
 
